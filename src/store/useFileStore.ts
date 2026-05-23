@@ -1,9 +1,10 @@
 /**
- * 文件管理状态
+ * 文件管理状态（Daemon 直连模式）
+ *  无需 daemonId，所有操作直接走已连接的 Daemon
  */
 import { create } from 'zustand';
-import { FileItem, FileListResponse } from '@/types/file';
 import * as fileApi from '@/api/file';
+import { FileItem, FileListResponse } from '@/types/file';
 
 /** File Store 状态接口 */
 interface FileStoreState {
@@ -19,17 +20,17 @@ interface FileStoreState {
   error: string | null;
 
   /** 获取文件列表 */
-  fetchFiles: (daemonId: string, uuid: string, path?: string) => Promise<void>;
+  fetchFiles: (uuid: string, path?: string) => Promise<void>;
   /** 读取文件内容 */
-  readFile: (daemonId: string, uuid: string, path: string) => Promise<string>;
+  readFile: (uuid: string, path: string) => Promise<string>;
   /** 写入文件 */
-  writeFile: (daemonId: string, uuid: string, path: string, content: string) => Promise<void>;
+  writeFile: (uuid: string, path: string, content: string) => Promise<void>;
   /** 删除文件 */
-  deleteFiles: (daemonId: string, uuid: string, paths: string[]) => Promise<void>;
+  deleteFiles: (uuid: string, paths: string[]) => Promise<void>;
   /** 创建文件夹 */
-  createDir: (daemonId: string, uuid: string, path: string) => Promise<void>;
+  createDir: (uuid: string, path: string) => Promise<void>;
   /** 创建文件 */
-  createFile: (daemonId: string, uuid: string, path: string) => Promise<void>;
+  createFile: (uuid: string, path: string) => Promise<void>;
   /** 设置当前路径 */
   setCurrentPath: (path: string) => void;
   /** 清除错误 */
@@ -45,16 +46,16 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   error: null,
 
   /** 获取文件列表 */
-  fetchFiles: async (daemonId: string, uuid: string, path: string = '/') => {
+  fetchFiles: async (uuid: string, path: string = '/') => {
     try {
       set({ isLoading: true, error: null });
 
-      const response = await fileApi.fetchFiles(daemonId, uuid, path);
+      const response = await fileApi.fetchFiles(uuid, path);
 
       set({
-        files: response.data.items || [],
+        files: response.items || [],
         currentPath: path,
-        absolutePath: response.data.absolutePath || '',
+        absolutePath: response.absolutePath || '',
         isLoading: false,
       });
     } catch (error: unknown) {
@@ -67,13 +68,13 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
 
   /** 读取文件内容 */
-  readFile: async (daemonId: string, uuid: string, path: string): Promise<string> => {
+  readFile: async (uuid: string, path: string): Promise<string> => {
     try {
       set({ error: null });
 
-      const response = await fileApi.readFile(daemonId, uuid, path);
+      const content = await fileApi.readFile(uuid, path);
 
-      return response.data || '';
+      return content || '';
     } catch (error: unknown) {
       const errorMessage: string = error instanceof Error ? error.message : '读取文件失败';
       set({ error: errorMessage });
@@ -82,11 +83,11 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
 
   /** 写入文件 */
-  writeFile: async (daemonId: string, uuid: string, path: string, content: string) => {
+  writeFile: async (uuid: string, path: string, content: string) => {
     try {
       set({ error: null });
 
-      await fileApi.writeFile(daemonId, uuid, path, content);
+      await fileApi.writeFile(uuid, path, content);
     } catch (error: unknown) {
       const errorMessage: string = error instanceof Error ? error.message : '写入文件失败';
       set({ error: errorMessage });
@@ -95,14 +96,14 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
 
   /** 删除文件 */
-  deleteFiles: async (daemonId: string, uuid: string, paths: string[]) => {
+  deleteFiles: async (uuid: string, paths: string[]) => {
     try {
       set({ error: null });
 
-      await fileApi.deleteFiles(daemonId, uuid, paths);
+      await fileApi.deleteFiles(uuid, paths);
 
       // 刷新文件列表
-      await get().fetchFiles(daemonId, uuid, get().currentPath);
+      await get().fetchFiles(uuid, get().currentPath);
     } catch (error: unknown) {
       const errorMessage: string = error instanceof Error ? error.message : '删除文件失败';
       set({ error: errorMessage });
@@ -111,14 +112,14 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
 
   /** 创建文件夹 */
-  createDir: async (daemonId: string, uuid: string, path: string) => {
+  createDir: async (uuid: string, path: string) => {
     try {
       set({ error: null });
 
-      await fileApi.createDir(daemonId, uuid, path);
+      await fileApi.createDir(uuid, path);
 
       // 刷新文件列表
-      await get().fetchFiles(daemonId, uuid, get().currentPath);
+      await get().fetchFiles(uuid, get().currentPath);
     } catch (error: unknown) {
       const errorMessage: string = error instanceof Error ? error.message : '创建文件夹失败';
       set({ error: errorMessage });
@@ -127,14 +128,14 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
 
   /** 创建文件 */
-  createFile: async (daemonId: string, uuid: string, path: string) => {
+  createFile: async (uuid: string, path: string) => {
     try {
       set({ error: null });
 
-      await fileApi.createFile(daemonId, uuid, path);
+      await fileApi.createFile(uuid, path);
 
       // 刷新文件列表
-      await get().fetchFiles(daemonId, uuid, get().currentPath);
+      await get().fetchFiles(uuid, get().currentPath);
     } catch (error: unknown) {
       const errorMessage: string = error instanceof Error ? error.message : '创建文件失败';
       set({ error: errorMessage });

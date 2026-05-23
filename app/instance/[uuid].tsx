@@ -1,6 +1,6 @@
 /**
- * 实例详情页
- * 状态显示 + 操作按钮 + 监控区
+ * 实例详情页（重构版）
+ * 状态显示 + 操作按钮 + 监控区（Daemon 直连模式）
  */
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, ScrollView, Alert } from 'react-native';
@@ -15,13 +15,12 @@ interface InstanceDetailScreenProps {
   route: {
     params: {
       uuid: string;
-      daemonId: string;
     };
   };
 }
 
 export default function InstanceDetailScreen({ route }: InstanceDetailScreenProps) {
-  const { uuid, daemonId } = route.params;
+  const { uuid } = route.params;
   const [instance, setInstance] = useState<InstanceDetail | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [actionLoading, setActionLoading] = useState<boolean>(false);
@@ -30,8 +29,8 @@ export default function InstanceDetailScreen({ route }: InstanceDetailScreenProp
   const fetchDetail = async (): Promise<void> => {
     try {
       setLoading(true);
-      const response = await instanceApi.fetchInstanceDetail(uuid, daemonId);
-      setInstance(response.data);
+      const response = await instanceApi.fetchInstanceDetail(uuid);
+      setInstance(response);
     } catch (error: unknown) {
       const errorMessage: string = error instanceof Error ? error.message : '获取实例详情失败';
       Alert.alert('错误', errorMessage);
@@ -42,13 +41,13 @@ export default function InstanceDetailScreen({ route }: InstanceDetailScreenProp
 
   useEffect(() => {
     fetchDetail();
-  }, [uuid, daemonId]);
+  }, [uuid]);
 
   /** 启动实例 */
   const handleStart = async (): Promise<void> => {
     try {
       setActionLoading(true);
-      await instanceApi.startInstance(uuid, daemonId);
+      await instanceApi.startInstance(uuid);
       await fetchDetail();
     } catch (error: unknown) {
       Alert.alert('错误', '启动实例失败');
@@ -67,7 +66,7 @@ export default function InstanceDetailScreen({ route }: InstanceDetailScreenProp
         onPress: async () => {
           try {
             setActionLoading(true);
-            await instanceApi.stopInstance(uuid, daemonId);
+            await instanceApi.stopInstance(uuid);
             await fetchDetail();
           } catch (error: unknown) {
             Alert.alert('错误', '停止实例失败');
@@ -88,7 +87,7 @@ export default function InstanceDetailScreen({ route }: InstanceDetailScreenProp
         onPress: async () => {
           try {
             setActionLoading(true);
-            await instanceApi.restartInstance(uuid, daemonId);
+            await instanceApi.restartInstance(uuid);
             await fetchDetail();
           } catch (error: unknown) {
             Alert.alert('错误', '重启实例失败');
@@ -210,16 +209,45 @@ export default function InstanceDetailScreen({ route }: InstanceDetailScreenProp
         <Card.Content>
           <Text variant="titleMedium">功能</Text>
           <Divider style={styles.divider} />
-          <Button mode="outlined" style={styles.functionButton} disabled={status !== InstanceStatus.RUNNING}>
+          <Button
+            mode="outlined"
+            style={styles.functionButton}
+            disabled={status !== InstanceStatus.RUNNING}
+            onPress={() => {
+              // TODO: Navigate to console screen
+              Alert.alert('提示', '控制台功能开发中');
+            }}
+          >
             控制台
           </Button>
-          <Button mode="outlined" style={styles.functionButton}>
+          <Button
+            mode="outlined"
+            style={styles.functionButton}
+            onPress={() => {
+              // TODO: Navigate to file manager screen
+              Alert.alert('提示', '文件管理功能开发中');
+            }}
+          >
             文件管理
           </Button>
-          <Button mode="outlined" style={styles.functionButton}>
+          <Button
+            mode="outlined"
+            style={styles.functionButton}
+            disabled={status !== InstanceStatus.RUNNING}
+            onPress={() => {
+              Alert.alert('提示', '配置编辑功能开发中');
+            }}
+          >
             配置编辑
           </Button>
-          <Button mode="outlined" style={styles.functionButton}>
+          <Button
+            mode="outlined"
+            style={styles.functionButton}
+            disabled={status !== InstanceStatus.RUNNING}
+            onPress={() => {
+              Alert.alert('提示', '备份管理功能开发中');
+            }}
+          >
             备份管理
           </Button>
         </Card.Content>

@@ -1,18 +1,19 @@
 /**
- * 控制台页（Tab 2）
- * 日志显示 + 命令输入
+ * 控制台页（Tab 2 · 重构版）
+ * 日志显示 + 命令输入（Daemon 直连模式）
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert } from 'react-native';
-import { Text, Button, ActivityIndicator, useTheme } from 'react-native-paper';
+import { Text, Button, ActivityIndicator } from 'react-native-paper';
 import { useConsoleStore } from '@/store/useConsoleStore';
 import { useInstanceStore } from '@/store/useInstanceStore';
 import LogViewer from '@/components/LogViewer';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 
 export default function ConsoleScreen() {
-  const { logs, isAutoScroll, isConnecting, error, fetchLogs, sendCommand, connectWebSocket, disconnectWebSocket, clearLogs, toggleAutoScroll, clearError } = useConsoleStore();
-  const { selectedDaemonId, instances } = useInstanceStore();
+  const { logs, isConnecting, error, connectInstance, disconnectInstance, sendCommand, clearLogs, clearError } =
+    useConsoleStore();
+  const { instances } = useInstanceStore();
   const [command, setCommand] = useState<string>('');
   const [isConnected, setIsConnected] = useState<boolean>(false);
 
@@ -21,21 +22,21 @@ export default function ConsoleScreen() {
     return instances.length > 0 ? instances[0].instanceUuid : '';
   };
 
-  /** 连接 WebSocket */
-  const handleConnect = async (): Promise<void> => {
+  /** 连接实例（启动日志流）*/
+  const handleConnect = (): void => {
     const uuid: string = getFirstInstanceUuid();
-    if (!selectedDaemonId || !uuid) {
-      Alert.alert('错误', '请先选择节点和实例');
+    if (!uuid) {
+      Alert.alert('错误', '没有可用的实例');
       return;
     }
 
-    connectWebSocket(uuid, selectedDaemonId);
+    connectInstance(uuid);
     setIsConnected(true);
   };
 
-  /** 断开 WebSocket */
+  /** 断开实例 */
   const handleDisconnect = (): void => {
-    disconnectWebSocket();
+    disconnectInstance();
     setIsConnected(false);
   };
 
@@ -44,10 +45,10 @@ export default function ConsoleScreen() {
     if (!command.trim()) return;
 
     const uuid: string = getFirstInstanceUuid();
-    if (!selectedDaemonId || !uuid) return;
+    if (!uuid) return;
 
     try {
-      await sendCommand(uuid, selectedDaemonId, command);
+      await sendCommand(uuid, command);
       setCommand('');
     } catch (error: unknown) {
       console.error('Failed to send command:', error);
@@ -59,10 +60,10 @@ export default function ConsoleScreen() {
     clearLogs();
   };
 
+  /** 组件卸载时断开连接 */
   useEffect(() => {
-    // 组件卸载时断开连接
     return () => {
-      disconnectWebSocket();
+      disconnectInstance();
     };
   }, []);
 
@@ -83,7 +84,7 @@ export default function ConsoleScreen() {
               mode="contained"
               onPress={handleConnect}
               loading={isConnecting}
-              disabled={isConnecting}
+              disabled={isConnecting || instances.length === 0}
               compact
               style={styles.connectButton}
             >
@@ -100,14 +101,6 @@ export default function ConsoleScreen() {
               断开
             </Button>
           )}
-
-          <TouchableOpacity onPress={toggleAutoScroll} style={styles.iconButton}>
-            <MaterialIcons
-              name={isAutoScroll ? 'vertical-align-bottom' : 'vertical-align-center'}
-              size={24}
-              color={isAutoScroll ? '#4CAF50' : '#9E9E9E'}
-            />
-          </TouchableOpacity>
 
           <TouchableOpacity onPress={handleClearLogs} style={styles.iconButton}>
             <MaterialIcons name="delete" size={24} color="#9E9E9E" />
@@ -127,7 +120,7 @@ export default function ConsoleScreen() {
 
       {/* 日志显示区 */}
       <View style={styles.logContainer}>
-        <LogViewer logs={logs} isAutoScroll={isAutoScroll} />
+        <LogViewer logs={logs} />
       </View>
 
       {/* 命令输入区 */}

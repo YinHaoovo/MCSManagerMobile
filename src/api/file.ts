@@ -1,148 +1,119 @@
 /**
- * 文件管理 API 函数
+ * 文件管理 API —— 基于 Daemon Socket.io 协议
+ *
+ * 注意：
+ *   - 文件列表/读取/写入 走 Socket.io 事件
+ *   - 大文件上传/下载 仍走 HTTP（需先通过 Socket.io 获取 mission passport）
  */
-import apiClient from './client';
-import { ApiResponse } from '@/types/api';
+import { getDaemonClient } from './client';
+import type { Packet } from './client';
 import { FileListResponse, FileUploadCredential, FileDownloadCredential } from '@/types/file';
 
 /** 获取文件列表 */
 export async function fetchFiles(
-  daemonId: string,
   uuid: string,
   path: string = '/',
-  page: number = 1,
-  pageSize: number = 100
-): Promise<ApiResponse<FileListResponse>> {
-  return apiClient.get('/files/list', {
-    params: {
-      daemonId,
-      uuid,
-      target: path,
-      page,
-      page_size: pageSize,
-    },
-  });
+): Promise<FileListResponse> {
+  const client = getDaemonClient();
+  return client.request<FileListResponse>('files/list', { uuid, target: path });
 }
 
 /** 读取文件内容 */
 export async function readFile(
-  daemonId: string,
   uuid: string,
-  path: string
-): Promise<ApiResponse<string>> {
-  return apiClient.put('/files', {
-    daemonId,
-    uuid,
-    target: path,
-  });
+  filePath: string,
+): Promise<string> {
+  const client = getDaemonClient();
+  return client.request<string>('files/read', { uuid, target: filePath });
 }
 
 /** 写入/编辑文件 */
 export async function writeFile(
-  daemonId: string,
   uuid: string,
-  path: string,
-  text: string
-): Promise<ApiResponse<null>> {
-  return apiClient.put('/files', {
-    daemonId,
-    uuid,
-    target: path,
-    text,
-  });
+  filePath: string,
+  text: string,
+): Promise<void> {
+  const client = getDaemonClient();
+  return client.request<void>('files/write', { uuid, target: filePath, text });
 }
 
-/** 删除文件 */
+/** 删除文件/目录 */
 export async function deleteFiles(
-  daemonId: string,
   uuid: string,
-  targets: string[]
-): Promise<ApiResponse<null>> {
-  return apiClient.delete('/files', {
-    params: {
-      daemonId,
-      uuid,
-    },
-    data: {
-      targets,
-    },
-  });
+  targets: string[],
+): Promise<void> {
+  const client = getDaemonClient();
+  return client.request<void>('files/delete', { uuid, targets });
 }
 
 /** 创建文件夹 */
 export async function createDir(
-  daemonId: string,
   uuid: string,
-  path: string
-): Promise<ApiResponse<null>> {
-  return apiClient.post('/files/mkdir', {
-    daemonId,
-    uuid,
-    target: path,
-  });
+  dirPath: string,
+): Promise<void> {
+  const client = getDaemonClient();
+  return client.request<void>('files/mkdir', { uuid, target: dirPath });
 }
 
 /** 新建文件 */
 export async function createFile(
-  daemonId: string,
   uuid: string,
-  path: string
-): Promise<ApiResponse<null>> {
-  return apiClient.post('/files/touch', {
-    daemonId,
-    uuid,
-    target: path,
-  });
-}
-
-/** 获取文件下载凭证 */
-export async function getDownloadCredential(
-  daemonId: string,
-  uuid: string,
-  fileName: string
-): Promise<ApiResponse<FileDownloadCredential>> {
-  return apiClient.post('/files/download', {
-    daemonId,
-    uuid,
-    file_name: fileName,
-  });
-}
-
-/** 获取文件上传凭证 */
-export async function getUploadCredential(
-  daemonId: string,
-  uuid: string,
-  uploadDir: string = '/'
-): Promise<ApiResponse<FileUploadCredential>> {
-  return apiClient.post('/files/upload', {
-    daemonId,
-    uuid,
-    upload_dir: uploadDir,
-  });
+  filePath: string,
+): Promise<void> {
+  const client = getDaemonClient();
+  return client.request<void>('files/touch', { uuid, target: filePath });
 }
 
 /** 复制文件 */
 export async function copyFiles(
-  daemonId: string,
   uuid: string,
-  targets: [string, string][]
-): Promise<ApiResponse<null>> {
-  return apiClient.post('/files/copy', {
-    daemonId,
-    uuid,
-    targets,
-  });
+  targets: [string, string][],
+): Promise<void> {
+  const client = getDaemonClient();
+  return client.request<void>('files/copy', { uuid, targets });
 }
 
 /** 移动/重命名文件 */
 export async function moveFiles(
-  daemonId: string,
   uuid: string,
-  targets: [string, string][]
-): Promise<ApiResponse<null>> {
-  return apiClient.put('/files/move', {
-    daemonId,
+  targets: [string, string][],
+): Promise<void> {
+  const client = getDaemonClient();
+  return client.request<void>('files/move', { uuid, targets });
+}
+
+/**
+ * 获取文件下载 URL（HTTP 下载仍需 mission passport）
+ * 返回可直接用于 fetch 下载的 URL
+ */
+export async function getDownloadUrl(
+  baseUrl: string,
+  uuid: string,
+  fileName: string,
+): Promise<string> {
+  const client = getDaemonClient();
+  const resp = await client.request<FileDownloadCredential>('files/download', {
     uuid,
-    targets,
+    fileName,
+  });
+  // resp 里应包含 password 和 addr，拼成 HTTP URL
+  // 格式：http://daemon-host:port/download/{password}/{fileName}
+  const password = resp?.password ?? '';
+  if (!password) return '';
+  const sep = baseUrl.endsWith('/') ? '' : '/';
+  return `${baseUrl}${sep}download/${password}/${fileName}`;
+}
+
+/**
+ * 获取文件上传凭证（HTTP 上传仍需 mission passport）
+ */
+export async function getUploadCredential(
+  uuid: string,
+  uploadDir: string = '/',
+): Promise<FileUploadCredential> {
+  const client = getDaemonClient();
+  return client.request<FileUploadCredential>('files/upload', {
+    uuid,
+    uploadDir,
   });
 }

@@ -8,7 +8,7 @@ import { useConsoleStore } from '@/store/useConsoleStore';
 
 interface LogViewerProps {
   logs: string;
-  isAutoScroll: boolean;
+  isAutoScroll?: boolean;  // 可选，默认 true
 }
 
 export default function LogViewer({ logs, isAutoScroll }: LogViewerProps) {

@@ -1,10 +1,10 @@
 /**
- * 文件管理页（Tab 3）
- * 路径面包屑 + 文件列表 + 操作菜单
+ * 文件管理页（Tab 3 · 重构版）
+ * 路径面包屑 + 文件列表 + 操作菜单（Daemon 直连模式）
  */
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, FlatList, TouchableOpacity, Alert, RefreshControl } from 'react-native';
-import { Text, FAB, ActivityIndicator, useTheme, Menu } from 'react-native-paper';
+import { Text, FAB, ActivityIndicator, Menu } from 'react-native-paper';
 import { useFileStore } from '@/store/useFileStore';
 import { useInstanceStore } from '@/store/useInstanceStore';
 import FileIcon from '@/components/FileIcon';
@@ -13,11 +13,10 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 
 export default function FileManagerScreen() {
   const { files, currentPath, isLoading, error, fetchFiles, clearError } = useFileStore();
-  const { selectedDaemonId, instances } = useInstanceStore();
+  const { instances } = useInstanceStore();
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [menuVisible, setMenuVisible] = useState<boolean>(false);
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
-  const theme = useTheme();
 
   /** 获取第一个实例的 UUID */
   const getFirstInstanceUuid = (): string => {
@@ -27,14 +26,14 @@ export default function FileManagerScreen() {
   /** 加载文件列表 */
   const loadFiles = async (path: string = currentPath): Promise<void> => {
     const uuid: string = getFirstInstanceUuid();
-    if (!selectedDaemonId || !uuid) return;
+    if (!uuid) return;
 
-    await fetchFiles(selectedDaemonId, uuid, path);
+    await fetchFiles(uuid, path);
   };
 
   useEffect(() => {
     loadFiles('/');
-  }, [selectedDaemonId]);
+  }, []);
 
   /** 下拉刷新 */
   const handleRefresh = async (): Promise<void> => {
@@ -212,8 +211,8 @@ export default function FileManagerScreen() {
               onPress: () => {
                 if (selectedFile) {
                   const uuid: string = getFirstInstanceUuid();
-                  if (selectedDaemonId && uuid) {
-                    useFileStore.getState().deleteFiles(selectedDaemonId, uuid, [selectedFile.name]);
+                  if (uuid) {
+                    useFileStore.getState().deleteFiles(uuid, [selectedFile.name]);
                   }
                 }
               },

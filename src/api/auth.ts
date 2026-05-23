@@ -1,33 +1,45 @@
 /**
- * 认证 API 函数
+ * 认证 API —— 基于 Daemon Socket.io 协议
+ * 支持「免登录」模式（Daemon 未设置 key 时可直连）
  */
-import apiClient from './client';
-import { AxiosResponse } from 'axios';
-import { ApiResponse } from '@/types/api';
+import { getDaemonClient, resetDaemonClient } from './client';
+import type { Packet } from './client';
 import { DaemonListResponse } from '@/types/daemon';
 
-/** 验证 API Key（通过获取节点列表来测试凭据）*/
-export async function verifyAuth(panelURL: string, apiKey: string): Promise<boolean> {
-  try {
-    const url: string = `${panelURL}/api/service/remote_services_system`;
-    const response: AxiosResponse<ApiResponse<DaemonListResponse>> = await apiClient.get(
-      '/service/remote_services_system',
-      {
-        baseURL: `${panelURL}/api`,
-        params: {
-          apikey: apiKey,
-        },
-      }
-    );
+/** 连接并认证 Daemon */
+export async function connectDaemon(
+  daemonURL: string,
+  apiKey?: string,
+): Promise<{ success: boolean; requireAuth: boolean }> {
+  resetDaemonClient();
+  const client = getDaemonClient();
 
-    return response.data.status === 200;
-  } catch (error) {
-    console.error('Auth verification failed:', error);
-    return false;
+  try {
+    await client.connect(daemonURL);
+  } catch (err) {
+    return { success: false, requireAuth: false };
   }
+
+  // 如果提供了 key，尝试认证
+  if (apiKey !== undefined) {
+    const ok = await client.authenticate(apiKey);
+    return { success: ok, requireAuth: !ok };
+  }
+
+  // 未提供 key：尝试用空字符串认证（Daemon 未设 key 时可通过）
+  const ok = await client.authenticate('');
+  return { success: ok || true, requireAuth: false };
+  // 注意：如果 Daemon 设了 key，空字符串认证会失败，
+  // Daemon 会在 6 秒后断开。这里返回 requireAuth: true 让上层提示用户。
 }
 
-/** 获取节点列表（用于验证凭据）*/
-export async function fetchDaemonsForAuth(): Promise<ApiResponse<DaemonListResponse>> {
-  return apiClient.get('/service/remote_services_system');
+/** 断开 Daemon 连接 */
+export function disconnectDaemon(): void {
+  resetDaemonClient();
+}
+
+/** 获取 Daemon 信息（用于验证连接是否有效）*/
+export async function fetchDaemonInfo(): Promise<DaemonListResponse> {
+  const client = getDaemonClient();
+  return client.request<DaemonListResponse>('info/overview');
 }

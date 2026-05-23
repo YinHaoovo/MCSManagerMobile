@@ -1,9 +1,10 @@
 /**
- * 文件编辑器页（P1 只读，P2 可编辑）
+ * 文件编辑器页（重构版）
+ * 只读模式（P1），P2 可编辑
  */
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, ScrollView, Alert } from 'react-native';
-import { Text, TextInput, Button, ActivityIndicator, useTheme } from 'react-native-paper';
+import { Text, TextInput, Button, ActivityIndicator } from 'react-native-paper';
 import { useFileStore } from '@/store/useFileStore';
 import { useInstanceStore } from '@/store/useInstanceStore';
 
@@ -18,7 +19,7 @@ interface FileEditorScreenProps {
 export default function FileEditorScreen({ route }: FileEditorScreenProps) {
   const { path } = route.params;
   const { readFile, writeFile, isLoading, error, clearError } = useFileStore();
-  const { selectedDaemonId, instances } = useInstanceStore();
+  const { instances } = useInstanceStore();
   const [content, setContent] = useState<string>('');
   const [isReadOnly, setIsReadOnly] = useState<boolean>(true); // P1: 只读模式
   const [isSaving, setIsSaving] = useState<boolean>(false);
@@ -31,10 +32,10 @@ export default function FileEditorScreen({ route }: FileEditorScreenProps) {
   /** 加载文件内容 */
   const loadFile = async (): Promise<void> => {
     const uuid: string = getFirstInstanceUuid();
-    if (!selectedDaemonId || !uuid) return;
+    if (!uuid) return;
 
     try {
-      const fileContent: string = await readFile(selectedDaemonId, uuid, path);
+      const fileContent: string = await readFile(uuid, path);
       setContent(fileContent);
     } catch (error: unknown) {
       console.error('Failed to load file:', error);
@@ -43,7 +44,7 @@ export default function FileEditorScreen({ route }: FileEditorScreenProps) {
 
   useEffect(() => {
     loadFile();
-  }, [path, selectedDaemonId]);
+  }, [path]);
 
   /** 保存文件 */
   const handleSave = async (): Promise<void> => {
@@ -53,11 +54,11 @@ export default function FileEditorScreen({ route }: FileEditorScreenProps) {
     }
 
     const uuid: string = getFirstInstanceUuid();
-    if (!selectedDaemonId || !uuid) return;
+    if (!uuid) return;
 
     try {
       setIsSaving(true);
-      await writeFile(selectedDaemonId, uuid, path, content);
+      await writeFile(uuid, path, content);
       Alert.alert('成功', '文件已保存');
     } catch (error: unknown) {
       Alert.alert('错误', '保存文件失败');
@@ -156,7 +157,7 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: 16,
-    color: '#9E9E9E',
+    color: '#B0B0B0',
   },
   header: {
     padding: 12,
@@ -174,6 +175,8 @@ const styles = StyleSheet.create({
   errorContainer: {
     padding: 12,
     backgroundColor: '#3B1515',
+    margin: 12,
+    borderRadius: 8,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',

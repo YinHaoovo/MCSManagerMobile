@@ -1,6 +1,6 @@
 /**
- * 实例列表页（Tab 1）
- * 节点选择器 + 实例卡片列表
+ * 实例列表页（Tab 1 · 重构版）
+ * Daemon 直连模式：无需节点选择器，直接显示实例列表
  */
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, FlatList, RefreshControl, Alert } from 'react-native';
@@ -8,45 +8,30 @@ import { Text, FAB, ActivityIndicator } from 'react-native-paper';
 import { useInstanceStore } from '@/store/useInstanceStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import InstanceCard from '@/components/InstanceCard';
-import NodePicker from '@/components/NodePicker';
 import StatusBadge from '@/components/StatusBadge';
 import { InstanceItem, InstanceStatus } from '@/types/instance';
 
 export default function InstanceListScreen() {
-  const { instances, daemons, selectedDaemonId, isLoading, error, fetchDaemons, fetchInstances, clearError } =
+  const { instances, isLoading, error, fetchInstances, startInstance, stopInstance, restartInstance, clearError } =
     useInstanceStore();
   const { isAuthenticated } = useAuthStore();
   const [refreshing, setRefreshing] = useState<boolean>(false);
 
-  /** 初始化：获取节点列表 */
+  /** 初始化：获取实例列表 */
   useEffect(() => {
     if (isAuthenticated) {
-      fetchDaemons();
+      fetchInstances();
     }
   }, [isAuthenticated]);
-
-  /** 节点加载完成后，获取实例列表 */
-  useEffect(() => {
-    if (selectedDaemonId) {
-      fetchInstances(selectedDaemonId);
-    }
-  }, [selectedDaemonId]);
 
   /** 下拉刷新 */
   const handleRefresh = async (): Promise<void> => {
     setRefreshing(true);
     try {
-      if (selectedDaemonId) {
-        await fetchInstances(selectedDaemonId);
-      }
+      await fetchInstances();
     } finally {
       setRefreshing(false);
     }
-  };
-
-  /** 切换节点 */
-  const handleNodeChange = (daemonId: string): void => {
-    useInstanceStore.getState().setSelectedDaemonId(daemonId);
   };
 
   /** 渲染实例卡片 */
@@ -54,7 +39,7 @@ export default function InstanceListScreen() {
     <InstanceCard
       instance={item}
       onStart={(uuid: string) => {
-        useInstanceStore.getState().startInstance(uuid, selectedDaemonId);
+        startInstance(uuid);
       }}
       onStop={(uuid: string) => {
         Alert.alert('确认停止', '确定要停止此实例吗？', [
@@ -63,7 +48,7 @@ export default function InstanceListScreen() {
             text: '停止',
             style: 'destructive',
             onPress: () => {
-              useInstanceStore.getState().stopInstance(uuid, selectedDaemonId);
+              stopInstance(uuid);
             },
           },
         ]);
@@ -74,7 +59,7 @@ export default function InstanceListScreen() {
           {
             text: '重启',
             onPress: () => {
-              useInstanceStore.getState().restartInstance(uuid, selectedDaemonId);
+              restartInstance(uuid);
             },
           },
         ]);
@@ -98,13 +83,6 @@ export default function InstanceListScreen() {
 
   return (
     <View style={styles.container}>
-      {/* 节点选择器 */}
-      <NodePicker
-        daemons={daemons}
-        selectedDaemonId={selectedDaemonId}
-        onSelect={handleNodeChange}
-      />
-
       {/* 状态统计 */}
       <View style={styles.statsContainer}>
         <StatusBadge status={InstanceStatus.RUNNING} count={getStatusCount(InstanceStatus.RUNNING)} />
@@ -129,7 +107,7 @@ export default function InstanceListScreen() {
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyText}>暂无实例</Text>
-            <Text style={styles.emptySubtext}>当前节点没有可用的实例</Text>
+            <Text style={styles.emptySubtext}>当前 Daemon 没有可用的实例</Text>
           </View>
         }
       />

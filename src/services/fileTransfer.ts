@@ -1,27 +1,30 @@
 /**
- * 文件上传/下载服务
+ * 文件上传/下载服务（Daemon 直连模式）
  * 获取凭证 → 直连 Daemon
  */
 import * as FileSystem from 'expo-file-system';
 import * as fileApi from '@/api/file';
-import { FileUploadCredential, FileDownloadCredential } from '@/types/file';
+import { FileUploadCredential } from '@/types/file';
+import { useAuthStore } from '@/store/useAuthStore';
+
+/** 获取 Daemon Base URL */
+function getDaemonBaseUrl(): string {
+  const state = useAuthStore.getState();
+  return state.daemonUrl;
+}
 
 /** 下载文件 */
 export async function downloadFile(
-  daemonId: string,
   uuid: string,
   fileName: string,
   targetPath: string
 ): Promise<string> {
   try {
-    // 1. 获取下载凭证
-    const credentialResponse = await fileApi.getDownloadCredential(daemonId, uuid, fileName);
-    const credential: FileDownloadCredential = credentialResponse.data;
+    // 1. 获取下载 URL
+    const baseUrl: string = getDaemonBaseUrl();
+    const downloadUrl: string = await fileApi.getDownloadUrl(baseUrl, uuid, fileName);
 
-    // 2. 构建下载 URL
-    const downloadUrl: string = `http://${credential.addr}/download/${credential.password}/${fileName}`;
-
-    // 3. 下载文件
+    // 2. 下载文件
     const downloadResult: FileSystem.FileSystemDownloadResult = await FileSystem.downloadAsync(
       downloadUrl,
       targetPath
@@ -40,18 +43,18 @@ export async function downloadFile(
 
 /** 上传文件 */
 export async function uploadFile(
-  daemonId: string,
   uuid: string,
   filePath: string,
   uploadDir: string = '/'
 ): Promise<void> {
   try {
     // 1. 获取上传凭证
-    const credentialResponse = await fileApi.getUploadCredential(daemonId, uuid, uploadDir);
-    const credential: FileUploadCredential = credentialResponse.data;
+    const credential: FileUploadCredential = await fileApi.getUploadCredential(uuid, uploadDir);
 
     // 2. 构建上传 URL
-    const uploadUrl: string = `http://${credential.addr}/upload/${credential.password}`;
+    const baseUrl: string = getDaemonBaseUrl();
+    const sep = baseUrl.endsWith('/') ? '' : '/';
+    const uploadUrl: string = `${baseUrl}${sep}upload/${credential.password}`;
 
     // 3. 上传文件（使用 multipart/form-data）
     const formData: FormData = new FormData();
@@ -80,7 +83,6 @@ export async function uploadFile(
 
 /** 批量下载文件 */
 export async function downloadFiles(
-  daemonId: string,
   uuid: string,
   fileNames: string[],
   targetDir: string
@@ -89,7 +91,7 @@ export async function downloadFiles(
 
   for (const fileName of fileNames) {
     const targetPath: string = `${targetDir}/${fileName}`;
-    const result: string = await downloadFile(daemonId, uuid, fileName, targetPath);
+    const result: string = await downloadFile(uuid, fileName, targetPath);
     results.push(result);
   }
 

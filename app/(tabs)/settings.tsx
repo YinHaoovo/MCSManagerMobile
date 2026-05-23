@@ -1,41 +1,71 @@
 /**
- * 设置页（Tab 4）
- * 服务地址管理/Token 管理/刷新频率/关于
+ * 设置页（Tab 4 · 重构版）
+ *   - 显示/修改 Daemon 地址和 API Key
+ *   - 直连模式下不需要 Panel 地址
  */
-import React, { useState } from 'react';
-import { View, StyleSheet, Alert, Switch, ScrollView } from 'react-native';
-import { Text, TextInput, Button, Card, Divider } from 'react-native-paper';
+import React, { useState, useEffect } from 'react';
+import { View, StyleSheet, Alert, ScrollView } from 'react-native';
+import { Text, TextInput, Button, Card, Divider, Switch } from 'react-native-paper';
 import { useAuthStore } from '@/store/useAuthStore';
 
 export default function SettingsScreen() {
-  const { panelURL, apiKey, logout } = useAuthStore();
+  const { daemonUrl, apiKey, logout, loadSavedAuth } = useAuthStore();
+
+  const [dUrl, setDUrl] = useState(daemonUrl || '');
+  const [dKey, setDKey] = useState(apiKey || '');
   const [refreshInterval, setRefreshInterval] = useState<number>(5);
   const [autoReconnect, setAutoReconnect] = useState<boolean>(true);
   const [darkMode, setDarkMode] = useState<boolean>(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setDUrl(daemonUrl || '');
+    setDKey(apiKey || '');
+  }, [daemonUrl, apiKey]);
+
+  /** 保存连接设置 */
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      // 格式化 URL
+      let url = dUrl.trim();
+      if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
+        url = `http://${url}`;
+      }
+      // 通过重新连接来保存
+      const { connectDaemon } = useAuthStore.getState();
+      const ok = await connectDaemon(url, dKey.trim() || undefined);
+      if (ok.success || !ok.requireAuth) {
+        Alert.alert('成功', 'Daemon 连接已保存');
+      } else {
+        Alert.alert('需要认证', '该 Daemon 已设置 Key，请输入后重试');
+      }
+    } catch (e: any) {
+      Alert.alert('连接失败', e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   /** 处理退出登录 */
-  const handleLogout = (): void => {
-    Alert.alert('确认退出', '确定要退出登录吗？', [
+  const handleLogout = () => {
+    Alert.alert('确认退出', '确定要断开连接吗？', [
       { text: '取消', style: 'cancel' },
       {
-        text: '退出',
+        text: '断开',
         style: 'destructive',
-        onPress: () => {
-          logout();
-        },
+        onPress: () => logout(),
       },
     ]);
   };
 
-  /** 清除缓存 */
-  const handleClearCache = (): void => {
+  /** 清除缓存（占位） */
+  const handleClearCache = () => {
     Alert.alert('清除缓存', '确定要清除所有缓存数据吗？', [
       { text: '取消', style: 'cancel' },
       {
         text: '清除',
-        onPress: () => {
-          Alert.alert('成功', '缓存已清除');
-        },
+        onPress: () => Alert.alert('成功', '缓存已清除'),
       },
     ]);
   };
@@ -43,29 +73,53 @@ export default function SettingsScreen() {
   return (
     <View style={styles.container}>
       <ScrollView style={styles.scrollView}>
+
         {/* 连接信息 */}
         <Card style={styles.card}>
           <Card.Content>
             <Text variant="titleMedium">连接信息</Text>
             <Divider style={styles.divider} />
 
-            <View style={styles.infoRow}>
-              <Text variant="bodyMedium" style={styles.infoLabel}>
-                服务地址
-              </Text>
-              <Text variant="bodyMedium" style={styles.infoValue}>
-                {panelURL || '未设置'}
-              </Text>
-            </View>
+            <Text variant="bodyMedium" style={styles.infoLabel}>
+              连接模式
+            </Text>
+            <Text variant="bodyMedium" style={styles.infoValue}>
+              Daemon 直连
+            </Text>
 
-            <View style={styles.infoRow}>
-              <Text variant="bodyMedium" style={styles.infoLabel}>
-                API Token
-              </Text>
-              <Text variant="bodyMedium" style={styles.infoValue}>
-                {apiKey ? '••••••••' : '未设置'}
-              </Text>
-            </View>
+            <TextInput
+              label="Daemon 地址"
+              value={dUrl}
+              onChangeText={setDUrl}
+              placeholder="http://192.168.1.100:24444"
+              mode="outlined"
+              autoCapitalize="none"
+              keyboardType="url"
+              style={styles.input}
+              disabled={saving}
+            />
+
+            <TextInput
+              label="API Key（可选）"
+              value={dKey}
+              onChangeText={setDKey}
+              placeholder="若 Daemon 未设 Key 可留空"
+              mode="outlined"
+              autoCapitalize="none"
+              secureTextEntry
+              style={styles.input}
+              disabled={saving}
+            />
+
+            <Button
+              mode="contained"
+              onPress={handleSave}
+              loading={saving}
+              disabled={saving || !dUrl.trim()}
+              style={styles.button}
+            >
+              保存并连接
+            </Button>
           </Card.Content>
         </Card>
 
@@ -96,7 +150,7 @@ export default function SettingsScreen() {
               <TextInput
                 style={styles.input}
                 value={String(refreshInterval)}
-                onChangeText={(value: string) => setRefreshInterval(Number(value) || 5)}
+                onChangeText={(v) => setRefreshInterval(Number(v) || 5)}
                 keyboardType="numeric"
                 mode="outlined"
               />
@@ -109,7 +163,6 @@ export default function SettingsScreen() {
           <Card.Content>
             <Text variant="titleMedium">存储管理</Text>
             <Divider style={styles.divider} />
-
             <Button
               mode="outlined"
               onPress={handleClearCache}
@@ -147,24 +200,25 @@ export default function SettingsScreen() {
 
             <View style={styles.infoRow}>
               <Text variant="bodyMedium" style={styles.infoLabel}>
-                开发者
+                架构
               </Text>
               <Text variant="bodyMedium" style={styles.infoValue}>
-                MCSManager Team
+                Daemon 直连（Socket.io）
               </Text>
             </View>
           </Card.Content>
         </Card>
 
-        {/* 退出登录 */}
+        {/* 断开连接 */}
         <Button
           mode="contained"
           onPress={handleLogout}
           style={styles.logoutButton}
           buttonColor="#F44336"
         >
-          退出登录
+          断开连接
         </Button>
+
       </ScrollView>
     </View>
   );
@@ -212,7 +266,7 @@ const styles = StyleSheet.create({
   },
   button: {
     marginTop: 8,
-    borderColor: '#FF9800',
+    paddingVertical: 4,
   },
   logoutButton: {
     margin: 12,

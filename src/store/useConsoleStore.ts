@@ -1,153 +1,119 @@
 /**
- * Console state management
+ * Console state management（Daemon 直连模式）
+ *  无需 daemonId，所有操作直接走已连接的 Daemon
  */
 import { create } from 'zustand';
-import { InstanceStatus } from '@/types/instance';
 import * as instanceApi from '@/api/instance';
-import { SocketManager } from '@/services/socket';
-import { useAuthStore } from './useAuthStore';
 
-/** Console Store state interface */
+/** Console Store 状态接口 */
 interface ConsoleStoreState {
-  /** Log content */
+  /** 日志内容 */
   logs: string;
-  /** Auto scroll */
-  isAutoScroll: boolean;
-  /** Connecting */
+  /** 是否正在连接 */
   isConnecting: boolean;
-  /** Error message */
+  /** 是否正在加载 */
+  isLoading: boolean;
+  /** 错误信息 */
   error: string | null;
-  /** WebSocket manager instance */
-  socketManager: SocketManager | null;
+  /** 当前订阅的实例 UUID */
+  activeUuid: string | null;
+  /** 取消日志流订阅的函数 */
+  unsubscribeLogs: (() => void) | null;
+  /** 取消状态订阅的函数 */
+  unsubscribeStatus: (() => void) | null;
 
-  /** Fetch logs */
-  fetchLogs: (uuid: string, daemonId: string, size?: number) => Promise<void>;
-  /** Send command */
-  sendCommand: (uuid: string, daemonId: string, cmd: string) => Promise<void>;
-  /** Connect WebSocket */
-  connectWebSocket: (uuid: string, daemonId: string) => void;
-  /** Disconnect WebSocket */
-  disconnectWebSocket: () => void;
-  /** Append logs */
-  appendLogs: (log: string) => void;
-  /** Clear logs */
+  /** 连接实例（启动日志流）*/
+  connectInstance: (uuid: string) => void;
+  /** 断开当前实例 */
+  disconnectInstance: () => void;
+  /** 发送命令 */
+  sendCommand: (uuid: string, command: string) => Promise<void>;
+  /** 获取实例输出日志 */
+  fetchLogs: (uuid: string, size?: number) => Promise<void>;
+  /** 清除日志 */
   clearLogs: () => void;
-  /** Toggle auto scroll */
-  toggleAutoScroll: () => void;
-  /** Clear error */
+  /** 清除错误 */
   clearError: () => void;
 }
 
-/** Create Console Store */
 export const useConsoleStore = create<ConsoleStoreState>((set, get) => ({
   logs: '',
-  isAutoScroll: true,
   isConnecting: false,
+  isLoading: false,
   error: null,
-  socketManager: null,
+  activeUuid: null,
+  unsubscribeLogs: null,
+  unsubscribeStatus: null,
 
-  /** Fetch logs */
-  fetchLogs: async (uuid: string, daemonId: string, size: number = 100) => {
-    try {
-      set({ error: null });
+  connectInstance: (uuid: string) => {
+    const state = get();
+    // 先断开旧连接
+    if (state.unsubscribeLogs) state.unsubscribeLogs();
+    if (state.unsubscribeStatus) state.unsubscribeStatus();
 
-      const response = await instanceApi.fetchOutputLog(uuid, daemonId, size);
+    set({ isConnecting: true, activeUuid: uuid, error: null });
 
-      set({ logs: response.data || '' });
-    } catch (error: unknown) {
-      const errorMessage: string = error instanceof Error ? error.message : 'Failed to fetch logs';
-      set({ error: errorMessage });
-    }
+    // 订阅日志流
+    const unsubLogs = instanceApi.subscribeInstanceLog(
+      uuid,
+      (log: string) => {
+        set((s) => ({ logs: s.logs + log }));
+      }
+    );
+
+    // 订阅状态变化
+    const unsubStatus = instanceApi.subscribeInstanceStatus(
+      (data: { uuid: string; status: number }) => {
+        // 状态变化时可做额外处理
+        console.log(`Instance ${data.uuid} status: ${data.status}`);
+      }
+    );
+
+    set({
+      isConnecting: false,
+      unsubscribeLogs: unsubLogs,
+      unsubscribeStatus: unsubStatus,
+    });
   },
 
-  /** Send command */
-  sendCommand: async (uuid: string, daemonId: string, cmd: string) => {
-    try {
-      set({ error: null });
+  disconnectInstance: () => {
+    const { unsubscribeLogs, unsubscribeStatus } = get();
+    if (unsubscribeLogs) unsubscribeLogs();
+    if (unsubscribeStatus) unsubscribeStatus();
+    set({
+      activeUuid: null,
+      unsubscribeLogs: null,
+      unsubscribeStatus: null,
+      logs: '',
+    });
+  },
 
-      await instanceApi.sendCommand(uuid, daemonId, cmd);
+  sendCommand: async (uuid: string, command: string) => {
+    set({ error: null });
+    try {
+      await instanceApi.sendCommand(uuid, command);
     } catch (error: unknown) {
-      const errorMessage: string = error instanceof Error ? error.message : 'Failed to send command';
-      set({ error: errorMessage });
+      const msg = error instanceof Error ? error.message : '发送命令失败';
+      set({ error: msg });
       throw error;
     }
   },
 
-  /** Connect WebSocket */
-  connectWebSocket: (uuid: string, daemonId: string) => {
+  fetchLogs: async (uuid: string, size: number = 100) => {
+    set({ isLoading: true, error: null });
     try {
-      set({ error: null, isConnecting: true });
-
-      const { panelURL, apiKey } = useAuthStore.getState();
-
-      if (!panelURL || !apiKey) {
-        set({ error: 'Not authenticated', isConnecting: false });
-        return;
-      }
-
-      // Create WebSocket manager
-      const manager: SocketManager = new SocketManager();
-
-      // Listen for connect event
-      manager.on('connect', () => {
-        set({ isConnecting: false });
-        console.log('WebSocket connected');
-      });
-
-      // Listen for disconnect event
-      manager.on('disconnect', () => {
-        console.log('WebSocket disconnected');
-      });
-
-      // Listen for log events
-      manager.on('instance/log', (logData: string) => {
-        get().appendLogs(logData);
-      });
-
-      // Connect
-      const wsUrl: string = `ws://${panelURL.replace(/^https?:\/\//, '')}/socket.io/`;
-      manager.connect(wsUrl, apiKey);
-
-      set({ socketManager: manager, isConnecting: false });
+      const log = await instanceApi.fetchOutputLog(uuid, size);
+      set({ logs: log || '', isLoading: false });
     } catch (error: unknown) {
-      const errorMessage: string = error instanceof Error ? error.message : 'Failed to connect WebSocket';
-      set({
-        error: errorMessage,
-        isConnecting: false,
-      });
+      const msg = error instanceof Error ? error.message : '获取日志失败';
+      set({ error: msg, isLoading: false });
     }
   },
 
-  /** Disconnect WebSocket */
-  disconnectWebSocket: () => {
-    const { socketManager } = get();
-
-    if (socketManager) {
-      socketManager.disconnect();
-      set({ socketManager: null });
-    }
-  },
-
-  /** Append logs */
-  appendLogs: (log: string) => {
-    set((state: ConsoleStoreState) => ({
-      logs: state.logs + log,
-    }));
-  },
-
-  /** Clear logs */
   clearLogs: () => {
     set({ logs: '' });
   },
 
-  /** Toggle auto scroll */
-  toggleAutoScroll: () => {
-    set((state: ConsoleStoreState) => ({
-      isAutoScroll: !state.isAutoScroll,
-    }));
-  },
-
-  /** Clear error */
   clearError: () => {
     set({ error: null });
   },
