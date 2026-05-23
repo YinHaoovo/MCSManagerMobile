@@ -1,96 +1,227 @@
 /**
- * 设置页（Tab 4 · 重构版）
- *   - 显示/修改 Daemon 地址和 API Key
- *   - 直连模式下不需要 Panel 地址
+ * 设置页（多 Daemon 支持）
+ *   - 显示已保存的 Daemons 列表
+ *   - 添加新的 Daemon
+ *   - 选择当前 Daemon
+ *   - 断开指定 Daemon
  */
-import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, Alert, ScrollView } from 'react-native';
-import { Text, TextInput, Button, Card, Divider, Switch } from 'react-native-paper';
+import React, { useState } from 'react';
+import { View, StyleSheet, Alert, ScrollView, FlatList } from 'react-native';
+import { Text, TextInput, Button, Card, Divider, Switch, ActivityIndicator } from 'react-native-paper';
 import { useAuthStore } from '@/store/useAuthStore';
+import type { DaemonConfig } from '@/store/useAuthStore';
 
 export default function SettingsScreen() {
-  const { daemonUrl, apiKey, logout, loadSavedAuth } = useAuthStore();
+  const {
+    daemons,
+    selectedDaemonId,
+    addDaemon,
+    removeDaemon,
+    selectDaemon,
+    disconnectDaemon,
+    isLoading,
+  } = useAuthStore();
 
-  const [dUrl, setDUrl] = useState(daemonUrl || '');
-  const [dKey, setDKey] = useState(apiKey || '');
-  const [refreshInterval, setRefreshInterval] = useState<number>(5);
-  const [autoReconnect, setAutoReconnect] = useState<boolean>(true);
-  const [darkMode, setDarkMode] = useState<boolean>(true);
+  const [newUrl, setNewUrl] = useState('');
+  const [newKey, setNewKey] = useState('');
+  const [newName, setNewName] = useState('');
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    setDUrl(daemonUrl || '');
-    setDKey(apiKey || '');
-  }, [daemonUrl, apiKey]);
+  /** 添加 Daemon */
+  const handleAddDaemon = async () => {
+    if (!newUrl.trim()) {
+      Alert.alert('错误', '请输入 Daemon 地址');
+      return;
+    }
 
-  /** 保存连接设置 */
-  const handleSave = async () => {
     setSaving(true);
     try {
-      // 格式化 URL
-      let url = dUrl.trim();
-      if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
+      let url = newUrl.trim();
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
         url = `http://${url}`;
       }
-      // 通过重新连接来保存
-      const { connectDaemon } = useAuthStore.getState();
-      const ok = await connectDaemon(url, dKey.trim() || undefined);
-      if (ok.success || !ok.requireAuth) {
-        Alert.alert('成功', 'Daemon 连接已保存');
+
+      const key = newKey.trim() || undefined;
+      const result = await addDaemon(url, key, newName.trim() || undefined);
+
+      if (result.success) {
+        Alert.alert('成功', 'Daemon 已连接');
+        setNewUrl('');
+        setNewKey('');
+        setNewName('');
+      } else if (result.requireAuth) {
+        Alert.alert('需要认证', '该 Daemon 已设置 API Key，请输入 Key 后重试');
       } else {
-        Alert.alert('需要认证', '该 Daemon 已设置 Key，请输入后重试');
+        Alert.alert('连接失败', '无法连接到 Daemon，请检查地址和网络');
       }
-    } catch (e: any) {
-      Alert.alert('连接失败', e.message);
+    } catch (error) {
+      Alert.alert('错误', error instanceof Error ? error.message : '添加 Daemon 失败');
     } finally {
       setSaving(false);
     }
   };
 
-  /** 处理退出登录 */
-  const handleLogout = () => {
-    Alert.alert('确认退出', '确定要断开连接吗？', [
+  /** 删除 Daemon */
+  const handleRemoveDaemon = (daemon: DaemonConfig) => {
+    Alert.alert('确认删除', `确定要删除 Daemon "${daemon.name || daemon.url}" 吗？`, [
       { text: '取消', style: 'cancel' },
       {
-        text: '断开',
+        text: '删除',
         style: 'destructive',
-        onPress: () => logout(),
+        onPress: () => removeDaemon(daemon.id),
       },
     ]);
   };
 
-  /** 清除缓存（占位） */
-  const handleClearCache = () => {
-    Alert.alert('清除缓存', '确定要清除所有缓存数据吗？', [
-      { text: '取消', style: 'cancel' },
-      {
-        text: '清除',
-        onPress: () => Alert.alert('成功', '缓存已清除'),
-      },
-    ]);
+  /** 选择 Daemon */
+  const handleSelectDaemon = (daemonId: string) => {
+    selectDaemon(daemonId);
+  };
+
+  /** 断开 Daemon */
+  const handleDisconnectDaemon = (daemonId: string) => {
+    disconnectDaemon(daemonId);
+  };
+
+  /** 断开所有 Daemon */
+  const handleDisconnectAll = () => {
+    daemons.forEach((d) => {
+      if (d.isConnected) {
+        disconnectDaemon(d.id);
+      }
+    });
   };
 
   return (
     <View style={styles.container}>
       <ScrollView style={styles.scrollView}>
 
-        {/* 连接信息 */}
+        {/* 当前选中的 Daemon */}
         <Card style={styles.card}>
           <Card.Content>
-            <Text variant="titleMedium">连接信息</Text>
+            <Text variant="titleMedium">当前 Daemon</Text>
             <Divider style={styles.divider} />
 
-            <Text variant="bodyMedium" style={styles.infoLabel}>
-              连接模式
-            </Text>
-            <Text variant="bodyMedium" style={styles.infoValue}>
-              Daemon 直连
-            </Text>
+            {selectedDaemonId ? (
+              (() => {
+                const daemon = daemons.find((d) => d.id === selectedDaemonId);
+                return daemon ? (
+                  <View>
+                    <Text variant="bodyLarge">{daemon.name || daemon.url}</Text>
+                    <Text variant="bodyMedium" style={styles.infoText}>
+                      URL: {daemon.url}
+                    </Text>
+                    <Text variant="bodyMedium" style={styles.infoText}>
+                      状态: {daemon.isConnected ? '已连接' : '未连接'}
+                    </Text>
+                    {daemon.info && (
+                      <Text variant="bodyMedium" style={styles.infoText}>
+                        版本: {daemon.info.version} | 平台: {daemon.info.platform}
+                      </Text>
+                    )}
+                  </View>
+                ) : (
+                  <Text variant="bodyMedium" style={styles.infoText}>
+                    未选择 Daemon
+                  </Text>
+                );
+              })()
+            ) : (
+              <Text variant="bodyMedium" style={styles.infoText}>
+                未选择 Daemon
+              </Text>
+            )}
+          </Card.Content>
+        </Card>
+
+        {/* 已保存的 Daemons 列表 */}
+        <Card style={styles.card}>
+          <Card.Content>
+            <Text variant="titleMedium">已保存的 Daemons</Text>
+            <Divider style={styles.divider} />
+
+            {daemons.length === 0 ? (
+              <Text variant="bodyMedium" style={styles.infoText}>
+                暂无已保存的 Daemon
+              </Text>
+            ) : (
+              daemons.map((daemon) => (
+                <View key={daemon.id} style={styles.daemonItem}>
+                  <View style={styles.daemonInfo}>
+                    <Text variant="bodyLarge">{daemon.name || daemon.url}</Text>
+                    <Text variant="bodyMedium" style={styles.infoText}>
+                      {daemon.url}
+                    </Text>
+                    <Text variant="bodyMedium" style={styles.infoText}>
+                      {daemon.isConnected ? '🟢 已连接' : '🔴 未连接'}
+                    </Text>
+                  </View>
+
+                  <View style={styles.daemonActions}>
+                    {daemon.id === selectedDaemonId ? (
+                      <Text variant="bodyMedium" style={styles.selectedText}>
+                        当前选中
+                      </Text>
+                    ) : (
+                      <Button
+                        mode="text"
+                        onPress={() => handleSelectDaemon(daemon.id)}
+                        disabled={!daemon.isConnected}
+                      >
+                        选中
+                      </Button>
+                    )}
+
+                    {daemon.isConnected ? (
+                      <Button
+                        mode="text"
+                        onPress={() => handleDisconnectDaemon(daemon.id)}
+                        textColor="#F44336"
+                      >
+                        断开
+                      </Button>
+                    ) : (
+                      <Button
+                        mode="text"
+                        onPress={() => handleSelectDaemon(daemon.id)}
+                      >
+                        连接
+                      </Button>
+                    )}
+
+                    <Button
+                      mode="text"
+                      onPress={() => handleRemoveDaemon(daemon)}
+                      textColor="#F44336"
+                    >
+                      删除
+                    </Button>
+                  </View>
+                </View>
+              ))
+            )}
+          </Card.Content>
+        </Card>
+
+        {/* 添加新的 Daemon */}
+        <Card style={styles.card}>
+          <Card.Content>
+            <Text variant="titleMedium">添加 Daemon</Text>
+            <Divider style={styles.divider} />
+
+            <TextInput
+              label="名称（可选）"
+              value={newName}
+              onChangeText={setNewName}
+              mode="outlined"
+              style={styles.input}
+              disabled={saving}
+            />
 
             <TextInput
               label="Daemon 地址"
-              value={dUrl}
-              onChangeText={setDUrl}
+              value={newUrl}
+              onChangeText={setNewUrl}
               placeholder="http://192.168.1.100:24444"
               mode="outlined"
               autoCapitalize="none"
@@ -101,8 +232,8 @@ export default function SettingsScreen() {
 
             <TextInput
               label="API Key（可选）"
-              value={dKey}
-              onChangeText={setDKey}
+              value={newKey}
+              onChangeText={setNewKey}
               placeholder="若 Daemon 未设 Key 可留空"
               mode="outlined"
               autoCapitalize="none"
@@ -113,113 +244,34 @@ export default function SettingsScreen() {
 
             <Button
               mode="contained"
-              onPress={handleSave}
+              onPress={handleAddDaemon}
               loading={saving}
-              disabled={saving || !dUrl.trim()}
+              disabled={saving || !newUrl.trim()}
               style={styles.button}
             >
-              保存并连接
+              添加并连接
             </Button>
           </Card.Content>
         </Card>
 
-        {/* 通用设置 */}
-        <Card style={styles.card}>
-          <Card.Content>
-            <Text variant="titleMedium">通用设置</Text>
-            <Divider style={styles.divider} />
-
-            <View style={styles.settingRow}>
-              <Text variant="bodyMedium">自动重连</Text>
-              <Switch
-                value={autoReconnect}
-                onValueChange={setAutoReconnect}
-              />
-            </View>
-
-            <View style={styles.settingRow}>
-              <Text variant="bodyMedium">深色模式</Text>
-              <Switch
-                value={darkMode}
-                onValueChange={setDarkMode}
-              />
-            </View>
-
-            <View style={styles.settingItem}>
-              <Text variant="bodyMedium">刷新频率（秒）</Text>
-              <TextInput
-                style={styles.input}
-                value={String(refreshInterval)}
-                onChangeText={(v) => setRefreshInterval(Number(v) || 5)}
-                keyboardType="numeric"
-                mode="outlined"
-              />
-            </View>
-          </Card.Content>
-        </Card>
-
-        {/* 存储管理 */}
-        <Card style={styles.card}>
-          <Card.Content>
-            <Text variant="titleMedium">存储管理</Text>
-            <Divider style={styles.divider} />
-            <Button
-              mode="outlined"
-              onPress={handleClearCache}
-              style={styles.button}
-              textColor="#FF9800"
-            >
-              清除缓存
-            </Button>
-          </Card.Content>
-        </Card>
-
-        {/* 关于 */}
-        <Card style={styles.card}>
-          <Card.Content>
-            <Text variant="titleMedium">关于</Text>
-            <Divider style={styles.divider} />
-
-            <View style={styles.infoRow}>
-              <Text variant="bodyMedium" style={styles.infoLabel}>
-                应用名称
-              </Text>
-              <Text variant="bodyMedium" style={styles.infoValue}>
-                MCSManager 移动端
-              </Text>
-            </View>
-
-            <View style={styles.infoRow}>
-              <Text variant="bodyMedium" style={styles.infoLabel}>
-                版本
-              </Text>
-              <Text variant="bodyMedium" style={styles.infoValue}>
-                v1.0.0
-              </Text>
-            </View>
-
-            <View style={styles.infoRow}>
-              <Text variant="bodyMedium" style={styles.infoLabel}>
-                架构
-              </Text>
-              <Text variant="bodyMedium" style={styles.infoValue}>
-                Daemon 直连（Socket.io）
-              </Text>
-            </View>
-          </Card.Content>
-        </Card>
-
-        {/* 断开连接 */}
+        {/* 断开所有连接 */}
         <Button
-          mode="contained"
-          onPress={handleLogout}
+          mode="outlined"
+          onPress={handleDisconnectAll}
           style={styles.logoutButton}
-          buttonColor="#F44336"
+          textColor="#F44336"
+          disabled={!daemons.some((d) => d.isConnected)}
         >
-          断开连接
+          断开所有连接
         </Button>
 
       </ScrollView>
+
+      {isLoading && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" />
+        </View>
+      )}
     </View>
   );
 }
@@ -239,26 +291,28 @@ const styles = StyleSheet.create({
   divider: {
     marginVertical: 12,
   },
-  infoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 8,
-  },
-  infoLabel: {
+  infoText: {
     color: '#9E9E9E',
+    marginTop: 4,
   },
-  infoValue: {
-    color: '#FFFFFF',
+  selectedText: {
+    color: '#4CAF50',
+    fontWeight: 'bold',
   },
-  settingRow: {
+  daemonItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333333',
   },
-  settingItem: {
-    paddingVertical: 12,
+  daemonInfo: {
+    flex: 1,
+  },
+  daemonActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   input: {
     marginTop: 8,
@@ -270,7 +324,12 @@ const styles = StyleSheet.create({
   },
   logoutButton: {
     margin: 12,
-    marginBottom: 32,
     paddingVertical: 4,
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

@@ -20,7 +20,7 @@ export default function LoginScreen() {
   const [apiKey, setApiKey] = useState('');
   const [panelUrl, setPanelUrl] = useState('');
   const [panelKey, setPanelKey] = useState('');
-  const { connectDaemon, isLoading } = useAuthStore();
+  const { addDaemon, isLoading } = useAuthStore();
 
   /** 处理 Daemon 直连 */
   const handleDaemonConnect = async () => {
@@ -35,7 +35,7 @@ export default function LoginScreen() {
     }
 
     const key = apiKey.trim() || undefined;
-    const result = await connectDaemon(url, key);
+    const result = await addDaemon(url, key);
 
     if (!result.success && result.requireAuth) {
       Alert.alert('需要认证', '该 Daemon 已设置 API Key，请输入 Key 后重试');

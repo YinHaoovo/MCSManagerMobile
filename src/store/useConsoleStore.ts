@@ -1,120 +1,151 @@
 /**
- * Console state management（Daemon 直连模式）
- *  无需 daemonId，所有操作直接走已连接的 Daemon
+ * 终端/日志状态管理（多 Daemon 支持）
+ * 自动使用 useAuthStore 中的 selectedDaemonId
  */
 import { create } from 'zustand';
 import * as instanceApi from '@/api/instance';
+import { useAuthStore } from './useAuthStore';
+
+/** 日志行 */
+interface LogLine {
+  text: string;
+  timestamp: number;
+}
 
 /** Console Store 状态接口 */
 interface ConsoleStoreState {
-  /** 日志内容 */
+  /** 当前连接的实例 UUID */
+  currentInstanceUuid: string | null;
+  /** 日志内容（字符串） */
   logs: string;
-  /** 是否正在连接 */
-  isConnecting: boolean;
+  /** 是否自动滚动 */
+  isAutoScroll: boolean;
   /** 是否正在加载 */
   isLoading: boolean;
   /** 错误信息 */
   error: string | null;
-  /** 当前订阅的实例 UUID */
-  activeUuid: string | null;
-  /** 取消日志流订阅的函数 */
-  unsubscribeLogs: (() => void) | null;
-  /** 取消状态订阅的函数 */
-  unsubscribeStatus: (() => void) | null;
+  /** 内部状态：取消日志监听函数（可选） */
+  _unsubscribeLog?: (() => void) | null;
+  /** 内部状态：取消状态监听函数（可选） */
+  _unsubscribeStatus?: (() => void) | null;
 
-  /** 连接实例（启动日志流）*/
+  /** 连接到实例（开始接收日志） */
   connectInstance: (uuid: string) => void;
-  /** 断开当前实例 */
+  /** 断开当前实例连接 */
   disconnectInstance: () => void;
-  /** 发送命令 */
+  /** 发送命令到实例终端 */
   sendCommand: (uuid: string, command: string) => Promise<void>;
-  /** 获取实例输出日志 */
-  fetchLogs: (uuid: string, size?: number) => Promise<void>;
+  /** 切换自动滚动 */
+  toggleAutoScroll: () => void;
   /** 清除日志 */
   clearLogs: () => void;
   /** 清除错误 */
   clearError: () => void;
 }
 
+/** 获取当前选中的 Daemon ID */
+function getSelectedDaemonId(): string {
+  const daemon = useAuthStore.getState().getSelectedDaemon();
+  if (!daemon) {
+    throw new Error('未选择 Daemon，请在设置中添加并选择一个 Daemon');
+  }
+  return daemon.id;
+}
+
+/** 创建 Console Store */
 export const useConsoleStore = create<ConsoleStoreState>((set, get) => ({
+  currentInstanceUuid: null,
   logs: '',
-  isConnecting: false,
+  isAutoScroll: true,
   isLoading: false,
   error: null,
-  activeUuid: null,
-  unsubscribeLogs: null,
-  unsubscribeStatus: null,
 
+  /** 连接到实例（开始接收日志） */
   connectInstance: (uuid: string) => {
-    const state = get();
-    // 先断开旧连接
-    if (state.unsubscribeLogs) state.unsubscribeLogs();
-    if (state.unsubscribeStatus) state.unsubscribeStatus();
+    const daemonId = getSelectedDaemonId();
+    
+    // 先断开之前的连接
+    if (get().currentInstanceUuid) {
+      get().disconnectInstance();
+    }
 
-    set({ isConnecting: true, activeUuid: uuid, error: null });
-
-    // 订阅日志流
-    const unsubLogs = instanceApi.subscribeInstanceLog(
+    // 监听日志流
+    const unsubscribeLog = instanceApi.subscribeInstanceLog(
+      daemonId,
       uuid,
-      (log: string) => {
-        set((s) => ({ logs: s.logs + log }));
+      (data: string) => {
+        set((state) => ({
+          logs: state.logs + data,
+        }));
       }
     );
 
-    // 订阅状态变化
-    const unsubStatus = instanceApi.subscribeInstanceStatus(
-      (data: { uuid: string; status: number }) => {
-        // 状态变化时可做额外处理
-        console.log(`Instance ${data.uuid} status: ${data.status}`);
+    // 监听状态更新
+    const unsubscribeStatus = instanceApi.subscribeInstanceStatus(
+      daemonId,
+      uuid,
+      (status) => {
+        // 可以在这里处理状态更新（如 CPU/内存使用率）
+        console.log('[ConsoleStore] Instance status update:', status);
       }
     );
 
     set({
-      isConnecting: false,
-      unsubscribeLogs: unsubLogs,
-      unsubscribeStatus: unsubStatus,
+      currentInstanceUuid: uuid,
+      isLoading: false,
+      error: null,
     });
+
+    // 保存取消监听函数（在 disconnectInstance 中调用）
+    (get() as any)._unsubscribeLog = unsubscribeLog;
+    (get() as any)._unsubscribeStatus = unsubscribeStatus;
   },
 
+  /** 断开当前实例连接 */
   disconnectInstance: () => {
-    const { unsubscribeLogs, unsubscribeStatus } = get();
-    if (unsubscribeLogs) unsubscribeLogs();
+    const unsubscribeLog = (get() as any)._unsubscribeLog;
+    const unsubscribeStatus = (get() as any)._unsubscribeStatus;
+
+    if (unsubscribeLog) unsubscribeLog();
     if (unsubscribeStatus) unsubscribeStatus();
+
     set({
-      activeUuid: null,
-      unsubscribeLogs: null,
-      unsubscribeStatus: null,
-      logs: '',
+      currentInstanceUuid: null,
+      _unsubscribeLog: null,
+      _unsubscribeStatus: null,
     });
   },
 
+  /** 发送命令到实例终端 */
   sendCommand: async (uuid: string, command: string) => {
-    set({ error: null });
+    const daemonId = getSelectedDaemonId();
     try {
-      await instanceApi.sendCommand(uuid, command);
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : '发送命令失败';
-      set({ error: msg });
-      throw error;
+      set({ error: null });
+      await instanceApi.sendCommand(daemonId, uuid, command);
+    } catch (error) {
+      console.error('[ConsoleStore] sendCommand failed:', error);
+      set({
+        error: error instanceof Error ? error.message : '发送命令失败',
+      });
     }
   },
 
-  fetchLogs: async (uuid: string, size: number = 100) => {
-    set({ isLoading: true, error: null });
-    try {
-      const log = await instanceApi.fetchOutputLog(uuid, size);
-      set({ logs: log || '', isLoading: false });
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : '获取日志失败';
-      set({ error: msg, isLoading: false });
-    }
+  /** 切换自动滚动 */
+  toggleAutoScroll: () => {
+    set((state) => ({ isAutoScroll: !state.isAutoScroll }));
   },
 
+  /** 清除日志 */
   clearLogs: () => {
     set({ logs: '' });
   },
 
+  /** 清除错误 */
   clearError: () => {
     set({ error: null });
   },
+
+  /** 内部状态（取消监听函数） */
+  _unsubscribeLog: null,
+  _unsubscribeStatus: null,
 }));

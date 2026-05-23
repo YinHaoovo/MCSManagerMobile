@@ -35,8 +35,8 @@ export default function FileEditorScreen({ route }: FileEditorScreenProps) {
     if (!uuid) return;
 
     try {
-      const fileContent: string = await readFile(uuid, path);
-      setContent(fileContent);
+      const fileContent: string | null = await readFile(uuid, path as string);
+      setContent(fileContent || '');
     } catch (error: unknown) {
       console.error('Failed to load file:', error);
     }

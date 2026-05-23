@@ -67,7 +67,7 @@ export interface InstanceProcessInfo {
   ppid: number;
   pid: number;
   ctime: number;     // 进程创建时间（时间戳 ms）
-  elpased: number;   // 运行时长（秒）
+  elpased: number;   // 运行时长（秒）—— 注意：MCSManager 源码拼写为 elpased
   timestamp: number;
 }
 
@@ -97,4 +97,16 @@ export interface InstanceItem {
     type: string;
   };
   status: InstanceStatus;
+}
+
+/** 兼容别名：Instance = InstanceItem */
+export type Instance = InstanceItem;
+
+/** 实例进程信息（ProcessInfo = InstanceProcessInfo） */
+export type ProcessInfo = InstanceProcessInfo;
+
+/** 请求选项 */
+export interface RequestOptions {
+  /** 超时（毫秒），默认 10000 */
+  timeout?: number;
 }

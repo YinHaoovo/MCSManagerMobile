@@ -14,15 +14,15 @@ import { InstanceItem, InstanceStatus } from '@/types/instance';
 export default function InstanceListScreen() {
   const { instances, isLoading, error, fetchInstances, startInstance, stopInstance, restartInstance, clearError } =
     useInstanceStore();
-  const { isAuthenticated } = useAuthStore();
+  const { daemons } = useAuthStore();
   const [refreshing, setRefreshing] = useState<boolean>(false);
 
   /** 初始化：获取实例列表 */
   useEffect(() => {
-    if (isAuthenticated) {
+    if (daemons.length > 0) {
       fetchInstances();
     }
-  }, [isAuthenticated]);
+  }, [daemons]);
 
   /** 下拉刷新 */
   const handleRefresh = async (): Promise<void> => {

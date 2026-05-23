@@ -1,5 +1,5 @@
 /**
- * 根布局 - Stack 导航容器
+ * 根布局 - Stack 导航容器（多 Daemon 支持）
  * 修复：始终渲染所有 Screen，用 useEffect + router.replace 处理认证重定向
  */
 import React, { useEffect } from 'react';
@@ -19,13 +19,13 @@ const styles = StyleSheet.create({
 });
 
 export default function RootLayout() {
-  const { loadSavedAuth, isAuthenticated, isLoading } = useAuthStore();
+  const { loadSavedDaemons, selectedDaemonId, daemons, isLoading } = useAuthStore();
   const segments = useSegments();
   const router = useRouter();
 
-  // App 启动时加载保存的认证信息
+  // App 启动时加载保存的 Daemons 配置
   useEffect(() => {
-    loadSavedAuth();
+    loadSavedDaemons();
   }, []);
 
   // 认证状态变化时重定向
@@ -33,15 +33,16 @@ export default function RootLayout() {
     if (isLoading) return;
 
     const inAuthGroup = segments[0] === '(auth)';
+    const hasDaemon = daemons.length > 0;
 
-    if (!isAuthenticated && !inAuthGroup) {
-      // 未认证 → 跳转登录页
+    if (!hasDaemon && !inAuthGroup) {
+      // 未配置 Daemon → 跳转登录页
       router.replace('/(auth)/login');
-    } else if (isAuthenticated && inAuthGroup) {
-      // 已认证 + 在登录页 → 跳转主界面
+    } else if (hasDaemon && inAuthGroup) {
+      // 已配置 Daemon + 在登录页 → 跳转主界面
       router.replace('/(tabs)');
     }
-  }, [isAuthenticated, isLoading, segments]);
+  }, [selectedDaemonId, daemons, isLoading, segments]);
 
   // 加载中显示启动屏
   if (isLoading) {

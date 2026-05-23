@@ -11,7 +11,7 @@ import LogViewer from '@/components/LogViewer';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 
 export default function ConsoleScreen() {
-  const { logs, isConnecting, error, connectInstance, disconnectInstance, sendCommand, clearLogs, clearError } =
+  const { logs, isLoading, error, connectInstance, disconnectInstance, sendCommand, clearLogs, clearError, currentInstanceUuid } =
     useConsoleStore();
   const { instances } = useInstanceStore();
   const [command, setCommand] = useState<string>('');
@@ -83,8 +83,8 @@ export default function ConsoleScreen() {
             <Button
               mode="contained"
               onPress={handleConnect}
-              loading={isConnecting}
-              disabled={isConnecting || instances.length === 0}
+              loading={isLoading}
+              disabled={isLoading || instances.length === 0}
               compact
               style={styles.connectButton}
             >

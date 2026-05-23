@@ -1,108 +1,121 @@
 /**
- * 实例详情页（重构版）
- * 状态显示 + 操作按钮 + 监控区（Daemon 直连模式）
+ * 实例详情页（多 Daemon 支持）
+ * 使用 useInstanceStore（自动获取 selectedDaemonId）
  */
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView, Alert } from 'react-native';
-import { Text, Button, Card, ActivityIndicator, Divider } from 'react-native-paper';
+import { View, StyleSheet, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import { Text, Card, Divider, Button, ProgressBar } from 'react-native-paper';
 import { useInstanceStore } from '@/store/useInstanceStore';
 import { useAuthStore } from '@/store/useAuthStore';
-import StatusBadge from '@/components/StatusBadge';
-import { InstanceDetail, InstanceStatus } from '@/types/instance';
-import * as instanceApi from '@/api/instance';
+import { InstanceStatus } from '@/types/instance';
+import type { InstanceDetail, ProcessInfo } from '@/types/instance';
 
-interface InstanceDetailScreenProps {
-  route: {
-    params: {
-      uuid: string;
-    };
-  };
-}
-
-export default function InstanceDetailScreen({ route }: InstanceDetailScreenProps) {
+export default function InstanceDetailScreen({ route }: { route: { params: { uuid: string } } }) {
   const { uuid } = route.params;
+  
+  const {
+    instanceDetails,
+    isLoading,
+    error,
+    fetchInstanceDetail,
+    startInstance,
+    stopInstance,
+    restartInstance,
+    killInstance,
+    clearError,
+  } = useInstanceStore();
+
   const [instance, setInstance] = useState<InstanceDetail | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [actionLoading, setActionLoading] = useState<boolean>(false);
+  const [processInfo, setProcessInfo] = useState<ProcessInfo | null>(null);
 
-  /** 获取实例详情 */
-  const fetchDetail = async (): Promise<void> => {
-    try {
-      setLoading(true);
-      const response = await instanceApi.fetchInstanceDetail(uuid);
-      setInstance(response);
-    } catch (error: unknown) {
-      const errorMessage: string = error instanceof Error ? error.message : '获取实例详情失败';
-      Alert.alert('错误', errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  /** 初始化：获取实例详情 */
   useEffect(() => {
-    fetchDetail();
+    loadInstanceDetail();
   }, [uuid]);
 
-  /** 启动实例 */
-  const handleStart = async (): Promise<void> => {
-    try {
-      setActionLoading(true);
-      await instanceApi.startInstance(uuid);
-      await fetchDetail();
-    } catch (error: unknown) {
-      Alert.alert('错误', '启动实例失败');
-    } finally {
-      setActionLoading(false);
+  /** 加载实例详情 */
+  const loadInstanceDetail = async () => {
+    const detail = await fetchInstanceDetail(uuid);
+    if (detail) {
+      setInstance(detail);
     }
+  };
+
+  /** 启动实例 */
+  const handleStart = async () => {
+    Alert.alert('确认启动', '确定要启动此实例吗？', [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '启动',
+        onPress: async () => {
+          await startInstance(uuid);
+          loadInstanceDetail();
+        },
+      },
+    ]);
   };
 
   /** 停止实例 */
-  const handleStop = async (): Promise<void> => {
+  const handleStop = async () => {
     Alert.alert('确认停止', '确定要停止此实例吗？', [
       { text: '取消', style: 'cancel' },
       {
         text: '停止',
         style: 'destructive',
         onPress: async () => {
-          try {
-            setActionLoading(true);
-            await instanceApi.stopInstance(uuid);
-            await fetchDetail();
-          } catch (error: unknown) {
-            Alert.alert('错误', '停止实例失败');
-          } finally {
-            setActionLoading(false);
-          }
+          await stopInstance(uuid);
+          loadInstanceDetail();
         },
       },
     ]);
   };
 
   /** 重启实例 */
-  const handleRestart = async (): Promise<void> => {
+  const handleRestart = async () => {
     Alert.alert('确认重启', '确定要重启此实例吗？', [
       { text: '取消', style: 'cancel' },
       {
         text: '重启',
         onPress: async () => {
-          try {
-            setActionLoading(true);
-            await instanceApi.restartInstance(uuid);
-            await fetchDetail();
-          } catch (error: unknown) {
-            Alert.alert('错误', '重启实例失败');
-          } finally {
-            setActionLoading(false);
-          }
+          await restartInstance(uuid);
+          loadInstanceDetail();
         },
       },
     ]);
   };
 
-  if (loading) {
+  /** 强制结束实例 */
+  const handleKill = async () => {
+    Alert.alert('确认强制结束', '确定要强制结束此实例吗？此操作可能丢失数据！', [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '强制结束',
+        style: 'destructive',
+        onPress: async () => {
+          await killInstance(uuid);
+          loadInstanceDetail();
+        },
+      },
+    ]);
+  };
+
+  /** 获取状态颜色 */
+  const getStatusColor = (status: InstanceStatus): string => {
+    switch (status) {
+      case InstanceStatus.RUNNING: return '#4CAF50';
+      case InstanceStatus.STOPPED: return '#F44336';
+      case InstanceStatus.STARTING: return '#FF9800';
+      case InstanceStatus.STOPPING: return '#FF9800';
+      case InstanceStatus.BUSY: return '#FF9800';
+      default: return '#9E9E9E';
+    }
+  };
+
+  if (isLoading && !instance) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" />
+        <Text style={styles.loadingText}>加载中...</Text>
       </View>
     );
   }
@@ -110,146 +123,101 @@ export default function InstanceDetailScreen({ route }: InstanceDetailScreenProp
   if (!instance) {
     return (
       <View style={styles.centered}>
-        <Text>实例不存在</Text>
+        <Text style={styles.errorText}>实例不存在</Text>
       </View>
     );
   }
 
-  const { config, processInfo, space, started, status } = instance;
+  const { config, processInfo: procInfo, status } = instance;
+  const isRunning = status === InstanceStatus.RUNNING;
 
   return (
     <ScrollView style={styles.container}>
-      {/* 实例基本信息 */}
+      {/* 实例信息 */}
       <Card style={styles.card}>
         <Card.Content>
-          <Text variant="headlineSmall">{config.nickname}</Text>
-          <View style={styles.statusContainer}>
-            <StatusBadge status={status} />
+          <Text variant="titleMedium">{config.nickname || '未命名实例'}</Text>
+          <Divider style={styles.divider} />
+
+          <View style={styles.infoRow}>
+            <Text variant="bodyMedium" style={styles.infoLabel}>状态</Text>
+            <Text
+              variant="bodyMedium"
+              style={[styles.infoValue, { color: getStatusColor(status) }]}
+            >
+              {InstanceStatus[status] || '未知'}
+            </Text>
           </View>
-          <Text variant="bodyMedium">类型: {config.type}</Text>
-          <Text variant="bodyMedium">启动次数: {started}</Text>
+
+          {procInfo && isRunning && (
+            <>
+              <View style={styles.infoRow}>
+                <Text variant="bodyMedium" style={styles.infoLabel}>CPU 使用率</Text>
+                <Text variant="bodyMedium" style={styles.infoValue}>
+                  {procInfo.cpu.toFixed(1)}%
+                </Text>
+              </View>
+
+              <View style={styles.infoRow}>
+                <Text variant="bodyMedium" style={styles.infoLabel}>内存使用</Text>
+                <Text variant="bodyMedium" style={styles.infoValue}>
+                  {procInfo.memory} MB
+                </Text>
+              </View>
+
+              <View style={styles.infoRow}>
+                <Text variant="bodyMedium" style={styles.infoLabel}>运行时长</Text>
+                <Text variant="bodyMedium" style={styles.infoValue}>
+                  {Math.floor(procInfo.elpased / 3600)} 小时
+                </Text>
+              </View>
+            </>
+          )}
         </Card.Content>
       </Card>
 
-      {/* 操作按钮区 */}
+      {/* 操作按钮 */}
       <Card style={styles.card}>
         <Card.Content>
           <Text variant="titleMedium">操作</Text>
           <Divider style={styles.divider} />
-          <View style={styles.buttonContainer}>
-            {status !== InstanceStatus.RUNNING && (
+
+          {isRunning ? (
+            <>
               <Button
                 mode="contained"
-                onPress={handleStart}
-                loading={actionLoading}
-                disabled={actionLoading}
+                onPress={handleStop}
+                style={styles.button}
+                buttonColor="#F44336"
+              >
+                停止
+              </Button>
+              <Button
+                mode="outlined"
+                onPress={handleRestart}
                 style={styles.button}
               >
-                启动
+                重启
               </Button>
-            )}
-            {status === InstanceStatus.RUNNING && (
-              <>
-                <Button
-                  mode="outlined"
-                  onPress={handleStop}
-                  loading={actionLoading}
-                  disabled={actionLoading}
-                  style={[styles.button, styles.stopButton]}
-                >
-                  停止
-                </Button>
-                <Button
-                  mode="outlined"
-                  onPress={handleRestart}
-                  loading={actionLoading}
-                  disabled={actionLoading}
-                  style={styles.button}
-                >
-                  重启
-                </Button>
-              </>
-            )}
-          </View>
-        </Card.Content>
-      </Card>
-
-      {/* 实时监控区 */}
-      {status === InstanceStatus.RUNNING && processInfo && (
-        <Card style={styles.card}>
-          <Card.Content>
-            <Text variant="titleMedium">资源监控</Text>
-            <Divider style={styles.divider} />
-
-            <View style={styles.monitorRow}>
-              <Text variant="bodyMedium">CPU 使用率</Text>
-              <Text variant="bodyLarge">{processInfo.cpu.toFixed(1)}%</Text>
-            </View>
-
-            <View style={styles.monitorRow}>
-              <Text variant="bodyMedium">内存使用</Text>
-              <Text variant="bodyLarge">{processInfo.memory.toFixed(0)} MB</Text>
-            </View>
-
-            <View style={styles.monitorRow}>
-              <Text variant="bodyMedium">运行时长</Text>
-              <Text variant="bodyLarge">{Math.floor(processInfo.elpased / 3600)} 小时</Text>
-            </View>
-
-            <View style={styles.monitorRow}>
-              <Text variant="bodyMedium">磁盘占用</Text>
-              <Text variant="bodyLarge">{space.toFixed(0)} MB</Text>
-            </View>
-          </Card.Content>
-        </Card>
-      )}
-
-      {/* 功能入口 */}
-      <Card style={styles.card}>
-        <Card.Content>
-          <Text variant="titleMedium">功能</Text>
-          <Divider style={styles.divider} />
-          <Button
-            mode="outlined"
-            style={styles.functionButton}
-            disabled={status !== InstanceStatus.RUNNING}
-            onPress={() => {
-              // TODO: Navigate to console screen
-              Alert.alert('提示', '控制台功能开发中');
-            }}
-          >
-            控制台
-          </Button>
-          <Button
-            mode="outlined"
-            style={styles.functionButton}
-            onPress={() => {
-              // TODO: Navigate to file manager screen
-              Alert.alert('提示', '文件管理功能开发中');
-            }}
-          >
-            文件管理
-          </Button>
-          <Button
-            mode="outlined"
-            style={styles.functionButton}
-            disabled={status !== InstanceStatus.RUNNING}
-            onPress={() => {
-              Alert.alert('提示', '配置编辑功能开发中');
-            }}
-          >
-            配置编辑
-          </Button>
-          <Button
-            mode="outlined"
-            style={styles.functionButton}
-            disabled={status !== InstanceStatus.RUNNING}
-            onPress={() => {
-              Alert.alert('提示', '备份管理功能开发中');
-            }}
-          >
-            备份管理
-          </Button>
+              <Button
+                mode="text"
+                onPress={handleKill}
+                style={styles.button}
+                textColor="#F44336"
+              >
+                强制结束
+              </Button>
+            </>
+          ) : (
+            <Button
+              mode="contained"
+              onPress={handleStart}
+              style={styles.button}
+              buttonColor="#4CAF50"
+            >
+              启动
+            </Button>
+          )}
         </Card.Content>
       </Card>
     </ScrollView>
@@ -265,34 +233,37 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#121212',
+  },
+  loadingText: {
+    marginTop: 16,
+    color: '#B0B0B0',
+  },
+  errorText: {
+    color: '#F44336',
+    fontSize: 16,
   },
   card: {
     margin: 12,
     backgroundColor: '#1E1E1E',
   },
-  statusContainer: {
-    marginVertical: 8,
-  },
   divider: {
     marginVertical: 12,
   },
-  buttonContainer: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  button: {
-    flex: 1,
-  },
-  stopButton: {
-    borderColor: '#F44336',
-  },
-  monitorRow: {
+  infoRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 8,
   },
-  functionButton: {
-    marginVertical: 4,
+  infoLabel: {
+    color: '#9E9E9E',
+  },
+  infoValue: {
+    color: '#FFFFFF',
+  },
+  button: {
+    marginTop: 8,
+    paddingVertical: 4,
   },
 });
