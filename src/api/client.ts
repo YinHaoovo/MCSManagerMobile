@@ -77,23 +77,24 @@ export async function connectDaemon(
       socket.emit('auth', authData);
     });
 
-    // 认证成功
-    socket.on('auth:success', (data) => {
-      console.log(`[DaemonClient] Auth success for daemon ${daemonId}:`, data);
+    // 认证响应（Daemon 返回 auth 事件，data 为 boolean）
+    socket.on('auth', (raw) => {
+      const packet = raw as Packet;
+      console.log(`[DaemonClient] Auth response for ${daemonId}:`, packet.data);
+      
       if (!resolved) {
         resolved = true;
-        connections.set(daemonId, socket);
-        resolve({ success: true, requireAuth: false, info: data });
-      }
-    });
-
-    // 认证失败
-    socket.on('auth:fail', (data) => {
-      console.error(`[DaemonClient] Auth failed for daemon ${daemonId}:`, data);
-      if (!resolved) {
-        resolved = true;
-        socket.disconnect();
-        resolve({ success: false, requireAuth: true });
+        if (packet.data === true) {
+          // 认证成功
+          console.log(`[DaemonClient] Auth success for daemon ${daemonId}`);
+          connections.set(daemonId, socket);
+          resolve({ success: true, requireAuth: false, info: packet.data });
+        } else {
+          // 认证失败
+          console.error(`[DaemonClient] Auth failed for daemon ${daemonId}`);
+          socket.disconnect();
+          resolve({ success: false, requireAuth: true });
+        }
       }
     });
 
