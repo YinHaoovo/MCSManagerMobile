@@ -2,7 +2,7 @@
   "name": "mcsm-mobile",
   "version": "1.0.0",
   "description": "MCSManager Mobile Client - Manage game servers on the go",
-  "main": "expo/AppEntry.js",
+  "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
