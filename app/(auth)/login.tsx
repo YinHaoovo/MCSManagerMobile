@@ -16,7 +16,8 @@ type LoginMode = 'daemon' | 'panel';
 
 export default function LoginScreen() {
   const [mode, setMode] = useState<LoginMode>('daemon');
-  const [daemonUrl, setDaemonUrl] = useState('');
+  const [host, setHost] = useState('');
+  const [port, setPort] = useState('24444');
   const [apiKey, setApiKey] = useState('');
   const [panelUrl, setPanelUrl] = useState('');
   const [panelKey, setPanelKey] = useState('');
@@ -24,16 +25,12 @@ export default function LoginScreen() {
 
   /** 处理 Daemon 直连 */
   const handleDaemonConnect = async () => {
-    if (!daemonUrl.trim()) {
+    if (!host.trim()) {
       Alert.alert('错误', '请输入 Daemon 地址');
       return;
     }
 
-    let url = daemonUrl.trim();
-    if (!url.startsWith('http://') && !url.startsWith('https://')) {
-      url = `http://${url}`;
-    }
-
+    const url = `http://${host.trim()}:${port || '24444'}`;
     const key = apiKey.trim() || undefined;
     const result = await addDaemon(url, key);
 
@@ -79,17 +76,34 @@ export default function LoginScreen() {
 
         {mode === 'daemon' ? (
           <>
-            <TextInput
-              label="Daemon 地址"
-              value={daemonUrl}
-              onChangeText={setDaemonUrl}
-              placeholder="http://192.168.1.100:24444"
-              mode="outlined"
-              autoCapitalize="none"
-              keyboardType="url"
-              style={styles.input}
-              disabled={isLoading}
-            />
+            <View style={styles.inputRow}>
+              <View style={[styles.inputFlex, styles.hostInput]}>
+                <TextInput
+                  label="Daemon 地址"
+                  value={host}
+                  onChangeText={setHost}
+                  placeholder="8.138.240.222"
+                  mode="outlined"
+                  autoCapitalize="none"
+                  keyboardType="url"
+                  style={styles.input}
+                  disabled={isLoading}
+                />
+              </View>
+              <View style={styles.portInput}>
+                <TextInput
+                  label="端口"
+                  value={port}
+                  onChangeText={setPort}
+                  placeholder="24444"
+                  mode="outlined"
+                  autoCapitalize="none"
+                  keyboardType="numeric"
+                  style={styles.input}
+                  disabled={isLoading}
+                />
+              </View>
+            </View>
             <TextInput
               label="API Key（可选）"
               value={apiKey}
@@ -179,6 +193,19 @@ const styles = StyleSheet.create({
   },
   segment: {
     marginBottom: 20,
+  },
+  inputRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  inputFlex: {
+    flex: 1,
+  },
+  hostInput: {
+    flex: 2,
+  },
+  portInput: {
+    width: 100,
   },
   input: {
     marginBottom: 16,

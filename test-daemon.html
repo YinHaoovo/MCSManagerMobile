@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MCSManager Daemon 连接测试</title>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #0f1117;
+      color: #c9d1d9;
+    }
+    h1 { color: #58a6ff; }
+    .form-group {
+      margin: 20px 0;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      color: #8b949e;
+    }
+    input {
+      width: 100%;
+      padding: 10px;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #c9d1d9;
+      font-size: 14px;
+    }
+    input:focus {
+      outline: none;
+      border-color: #58a6ff;
+    }
+    button {
+      padding: 12px 24px;
+      background: #238636;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 16px;
+      cursor: pointer;
+      margin-top: 20px;
+    }
+    button:hover { background: #2ea043; }
+    button:disabled {
+      background: #484f58;
+      cursor: not-allowed;
+    }
+    #log {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 15px;
+      margin-top: 20px;
+      height: 400px;
+      overflow-y: auto;
+      font-family: "Courier New", monospace;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .log-line { margin: 5px 0; }
+    .success { color: #3fb950; }
+    .error { color: #f85149; }
+    .warning { color: #d29922; }
+    .info { color: #58a6ff; }
+  </style>
+</head>
+<body>
+  <h1>🔧 MCSManager Daemon 连接测试</h1>
+  <p>在浏览器中直接测试 Daemon 连接（排除 App 问题）</p>
+
+  <div class="form-group">
+    <label>Daemon URL（例如：http://8.138.240.222:40057）</label>
+    <input type="text" id="url" value="http://8.138.240.222:40057" placeholder="http://...">
+  </div>
+
+  <div class="form-group">
+    <label>API Key（可选，如果没有则留空）</label>
+    <input type="text" id="apiKey" value="3cbcad4c25e54fd2dd16a89872e437580b9c7abe99e5236" placeholder="留空则尝试无认证连接">
+  </div>
+
+  <button id="testBtn" onclick="testConnection()">开始测试</button>
+  <button id="disconnectBtn" onclick="disconnect()" disabled>断开连接</button>
+
+  <div id="log"></div>
+
+  <script>
+    let socket = null;
+
+    function log(message, type = 'info') {
+      const logDiv = document.getElementById('log');
+      const line = document.createElement('div');
+      line.className = `log-line ${type}`;
+      line.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      logDiv.appendChild(line);
+      logDiv.scrollTop = logDiv.scrollHeight;
+    }
+
+    function testConnection() {
+      const url = document.getElementById('url').value.trim();
+      const apiKey = document.getElementById('apiKey').value.trim();
+
+      if (!url) {
+        alert('请输入 Daemon URL！');
+        return;
+      }
+
+      log('=== 开始测试 ===', 'info');
+      log(`URL: ${url}`, 'info');
+      log(`API Key: ${apiKey ? apiKey.substring(0, 10) + '...' : '(空)'}`, 'info');
+      log('', 'info');
+
+      document.getElementById('testBtn').disabled = true;
+      document.getElementById('disconnectBtn').disabled = false;
+
+      // 断开旧连接
+      if (socket) {
+        socket.disconnect();
+      }
+
+      // 创建 Socket.io 连接
+      log('⏳ [1/4] 正在连接...', 'info');
+      
+      socket = io(url, {
+        transports: ['websocket', 'polling'],
+        reconnection: false,
+        timeout: 10000,
+      });
+
+      // 连接成功
+      socket.on('connect', () => {
+        log('✅ [2/4] Socket.io 连接成功！', 'success');
+        log(`   Socket ID: ${socket.id}`, 'info');
+        log('', 'info');
+
+        // 立即发送认证
+        log('⏳ [3/4] 发送认证...', 'info');
+        
+        // 测试格式 1: { key: apiKey }
+        const authData1 = { key: apiKey };
+        log(`   格式 1: ${JSON.stringify(authData1)}`, 'info');
+        socket.emit('auth', authData1);
+
+        // 3 秒后测试格式 2: 纯字符串
+        setTimeout(() => {
+          if (!apiKey) return;
+          log('', 'info');
+          log('⏳ 测试格式 2: 纯字符串', 'info');
+          socket.emit('auth', apiKey);
+        }, 3000);
+      });
+
+      // 认证响应
+      socket.on('auth', (data) => {
+        log('', 'info');
+        if (data === true) {
+          log('✅ [4/4] 认证成功！', 'success');
+          log('   可以开始使用 Daemon 了', 'success');
+          log('', 'success');
+          log('=== 测试完成 ===', 'success');
+        } else {
+          log('❌ 认证失败！', 'error');
+          log(`   返回数据: ${JSON.stringify(data)}`, 'error');
+          log('', 'error');
+          log('💡 可能的原因：', 'warning');
+          log('   1. API Key 错误', 'warning');
+          log('   2. Daemon 未启用 API Key 认证', 'warning');
+          log('   3. IP 不在白名单中', 'warning');
+        }
+      });
+
+      // 连接错误
+      socket.on('connect_error', (error) => {
+        log('❌ 连接错误！', 'error');
+        log(`   错误信息: ${error.message}`, 'error');
+        log('', 'error');
+        log('💡 可能的原因：', 'warning');
+        log('   1. Daemon URL 不正确', 'warning');
+        log('   2. Daemon 未运行', 'warning');
+        log('   3. 防火墙阻止了连接', 'warning');
+        log('   4. 网络不通', 'warning');
+        resetButtons();
+      });
+
+      // 断开连接
+      socket.on('disconnect', (reason) => {
+        log('', 'info');
+        log(`⚠️  连接断开: ${reason}`, 'warning');
+        if (reason === 'io server disconnect') {
+          log('   (服务器主动断开，可能是认证失败)', 'error');
+        }
+        resetButtons();
+      });
+
+      // 超时处理
+      setTimeout(() => {
+        if (!socket.connected) {
+          log('', 'error');
+          log('❌ 连接超时（10秒）！', 'error');
+          resetButtons();
+        }
+      }, 10000);
+    }
+
+    function disconnect() {
+      if (socket) {
+        socket.disconnect();
+        log('已手动断开连接', 'info');
+        resetButtons();
+      }
+    }
+
+    function resetButtons() {
+      document.getElementById('testBtn').disabled = false;
+      document.getElementById('disconnectBtn').disabled = true;
+    }
+  </script>
+</body>
+</html>

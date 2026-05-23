@@ -28,39 +28,9 @@ export async function connectDaemon(
   options?: ConnectOptions,
 ): Promise<{ success: boolean; requireAuth: boolean; info?: DaemonInfo }> {
   try {
-    // 1. 建立 Socket.io 连接（会在 connect 事件中自动发送 auth）
-    const socket = socketConnect(daemonId, url, apiKey);
-
-    // 2. 等待连接成功（或失败）
-    const connected = await new Promise<boolean>((resolve) => {
-      const timeout = setTimeout(() => {
-        resolve(false);
-      }, options?.timeout ?? 10000);
-
-      socket.once('connect', () => {
-        clearTimeout(timeout);
-        resolve(true);
-      });
-
-      socket.once('connect_error', () => {
-        clearTimeout(timeout);
-        resolve(false);
-      });
-    });
-
-    if (!connected) {
-      return { success: false, requireAuth: false };
-    }
-
-    // 3. 等待认证结果（Daemon 会在 auth 成功后发送 welcome 事件？或者我们直接请求 info/overview 测试）
-    // 简单方案：直接请求 info/overview，如果成功则说明认证通过
-    try {
-      const info = await fetchDaemonInfo(daemonId);
-      return { success: true, requireAuth: false, info };
-    } catch (error) {
-      // 如果请求失败，可能是 API Key 错误
-      return { success: false, requireAuth: true };
-    }
+    // 直接调用 client.ts 的 connectDaemon，它会处理连接和认证
+    const result = await socketConnect(daemonId, url, apiKey);
+    return result;
   } catch (error) {
     console.error('[auth] connectDaemon failed:', error);
     return { success: false, requireAuth: false };
@@ -97,7 +67,7 @@ export async function testDaemonConnection(
   // 使用一个临时 daemonId 进行测试
   const tempId = `__test_${Date.now()}`;
   const result = await connectDaemon(tempId, url, apiKey);
-  
+
   // 测试完成后断开
   if (result.success || result.requireAuth) {
     disconnectDaemon(tempId);
