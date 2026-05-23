@@ -26,69 +26,107 @@ const eventListeners: Map<string, Map<string, Set<(data: unknown) => void>>> = n
  * @param daemonId  Daemon 唯一 ID
  * @param url       Daemon URL (e.g., http://192.168.1.100:24444)
  * @param apiKey    API Key（可选，未设时尝试空字符串）
+ * @returns Promise<{ success: boolean; requireAuth: boolean; info?: any }>
  */
-export function connectDaemon(
+export async function connectDaemon(
   daemonId: string,
   url: string,
   apiKey?: string,
-): Socket {
-  // 如果已存在连接，先断开
-  if (connections.has(daemonId)) {
-    disconnectDaemon(daemonId);
-  }
-
-  const socket: Socket = io(url, {
-    transports: ['websocket', 'polling'],
-    reconnection: true,
-    reconnectionAttempts: 5,
-    reconnectionDelay: 1000,
-  });
-
-  // 连接成功
-  socket.on('connect', () => {
-    console.log(`[DaemonClient] Connected to daemon ${daemonId}: ${url}`);
-
-    // 必须在 6 秒内发送认证，否则 Daemon 会断开连接
-    setTimeout(() => {
-      // 发送认证事件（Daemon auth_router 直接读 data 字段）
-      if (socket) {
-        socket.emit('auth', apiKey || '');
-      }
-    }, 1000);
-  });
-
-  // 全局响应监听：匹配请求/响应
-  socket.onAny((eventName, raw) => {
-    const packet = raw as Packet;
-    if (!packet.uuid) return;
-
-    const req = pendingRequests.get(packet.uuid);
-    if (!req) return;
-
-    clearTimeout(req.timer);
-    pendingRequests.delete(packet.uuid);
-
-    if (packet.status === 200) {
-      req.resolve(packet.data);
-    } else {
-      req.reject(new Error(`Daemon Error: ${packet.data}`));
+): Promise<{ success: boolean; requireAuth: boolean; info?: any }> {
+  return new Promise((resolve) => {
+    // 如果已存在连接，先断开
+    if (connections.has(daemonId)) {
+      disconnectDaemon(daemonId);
     }
+
+    const socket: Socket = io(url, {
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      timeout: 10000,
+    });
+
+    let resolved = false;
+
+    // 全局响应监听：匹配请求/响应
+    socket.onAny((eventName, raw) => {
+      const packet = raw as Packet;
+      if (!packet.uuid) return;
+
+      const req = pendingRequests.get(packet.uuid);
+      if (!req) return;
+
+      clearTimeout(req.timer);
+      pendingRequests.delete(packet.uuid);
+
+      if (packet.status === 200) {
+        req.resolve(packet.data);
+      } else {
+        req.reject(new Error(`Daemon Error: ${packet.data}`));
+      }
+    });
+
+    // 连接成功
+    socket.on('connect', () => {
+      console.log(`[DaemonClient] Connected to daemon ${daemonId}: ${url}`);
+
+      // 立即发送认证（Daemon 要求在 6 秒内认证）
+      const authData = apiKey ? { key: apiKey } : { key: '' };
+      console.log(`[DaemonClient] Sending auth to ${daemonId}`, authData);
+      socket.emit('auth', authData);
+    });
+
+    // 认证成功
+    socket.on('auth:success', (data) => {
+      console.log(`[DaemonClient] Auth success for daemon ${daemonId}:`, data);
+      if (!resolved) {
+        resolved = true;
+        connections.set(daemonId, socket);
+        resolve({ success: true, requireAuth: false, info: data });
+      }
+    });
+
+    // 认证失败
+    socket.on('auth:fail', (data) => {
+      console.error(`[DaemonClient] Auth failed for daemon ${daemonId}:`, data);
+      if (!resolved) {
+        resolved = true;
+        socket.disconnect();
+        resolve({ success: false, requireAuth: true });
+      }
+    });
+
+    // 连接错误
+    socket.on('connect_error', (error) => {
+      console.error(`[DaemonClient] Connection error for daemon ${daemonId}:`, error.message);
+      console.error(`[DaemonClient] Please check:
+        1. Daemon URL is correct (e.g., http://192.168.1.100:24444)
+        2. Daemon is running and accessible
+        3. Firewall allows connection to port 24444
+        4. API Key is correct (if required)
+      `);
+      if (!resolved) {
+        resolved = true;
+        resolve({ success: false, requireAuth: false });
+      }
+    });
+
+    // 断开连接
+    socket.on('disconnect', (reason) => {
+      console.log(`[DaemonClient] Disconnected from daemon ${daemonId}:`, reason);
+    });
+
+    // 超时处理
+    setTimeout(() => {
+      if (!resolved) {
+        console.error(`[DaemonClient] Connection timeout for daemon ${daemonId}`);
+        resolved = true;
+        socket.disconnect();
+        resolve({ success: false, requireAuth: false });
+      }
+    }, 10000);
   });
-
-  // 断开连接
-  socket.on('disconnect', (reason) => {
-    console.log(`[DaemonClient] Disconnected from daemon ${daemonId}:`, reason);
-  });
-
-  // 连接错误
-  socket.on('connect_error', (error) => {
-    console.error(`[DaemonClient] Connection error for daemon ${daemonId}:`, error.message);
-  });
-
-  // 保存到连接池
-  connections.set(daemonId, socket);
-
-  return socket;
 }
 
 /**
